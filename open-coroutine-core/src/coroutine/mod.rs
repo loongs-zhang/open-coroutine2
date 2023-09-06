@@ -1,10 +1,9 @@
 use crate::coroutine::constants::CoroutineState;
 use crate::coroutine::local::CoroutineLocal;
-use crate::coroutine::suspender::{DelaySuspender, Suspender, SuspenderImpl};
+use crate::coroutine::suspender::Suspender;
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::fmt::Debug;
-use std::fmt::Formatter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Constants.
@@ -15,6 +14,12 @@ pub mod local;
 
 /// Coroutine suspender abstraction.
 pub mod suspender;
+
+#[cfg(all(feature = "korosensei", not(feature = "boost")))]
+pub use korosensei::{CoroutineImpl, SuspenderImpl};
+#[allow(missing_docs)]
+#[cfg(feature = "korosensei")]
+mod korosensei;
 
 #[allow(clippy::pedantic, missing_docs)]
 pub fn page_size() -> usize {
@@ -135,181 +140,8 @@ macro_rules! co {
 }
 
 thread_local! {
-    static COROUTINE: Cell<*const c_void> = Cell::new(std::ptr::null());
+    pub(crate) static COROUTINE: Cell<*const c_void> = Cell::new(std::ptr::null());
 }
-#[cfg(all(feature = "korosensei", not(feature = "boost")))]
-pub use korosensei::CoroutineImpl;
-#[allow(missing_docs)]
-#[cfg(feature = "korosensei")]
-mod korosensei {
-    use super::*;
-    use corosensei::stack::DefaultStack;
-    use corosensei::{CoroutineResult, ScopedCoroutine};
-
-    pub struct CoroutineImpl<'c, Param, Yield, Return>
-    where
-        Yield: Copy + Eq + PartialEq,
-        Return: Copy + Eq + PartialEq,
-    {
-        name: String,
-        inner: ScopedCoroutine<'c, Param, Yield, Return, DefaultStack>,
-        state: Cell<CoroutineState<Yield, Return>>,
-        local: CoroutineLocal<'c>,
-    }
-
-    impl<Param, Yield, Return> Drop for CoroutineImpl<'_, Param, Yield, Return>
-    where
-        Yield: Copy + Eq + PartialEq,
-        Return: Copy + Eq + PartialEq,
-    {
-        fn drop(&mut self) {
-            //for test_yield case
-            if self.inner.started() && !self.inner.done() {
-                unsafe { self.inner.force_reset() };
-            }
-        }
-    }
-
-    impl<Param, Yield, Return> Debug for CoroutineImpl<'_, Param, Yield, Return>
-    where
-        Yield: Copy + Eq + PartialEq + Debug,
-        Return: Copy + Eq + PartialEq + Debug,
-    {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("Coroutine")
-                .field("name", &self.name)
-                .field("status", &self.state)
-                .field("local", &self.local)
-                .finish()
-        }
-    }
-
-    impl<'c, Param, Yield, Return> Current<'c> for CoroutineImpl<'c, Param, Yield, Return>
-    where
-        Yield: Copy + Eq + PartialEq,
-        Return: Copy + Eq + PartialEq,
-    {
-        #[allow(clippy::ptr_as_ptr)]
-        fn init_current(suspender: &CoroutineImpl<'c, Param, Yield, Return>) {
-            COROUTINE.with(|c| c.set(suspender as *const _ as *const c_void));
-        }
-
-        fn current() -> Option<&'c Self> {
-            COROUTINE.with(|boxed| {
-                let ptr = boxed.get();
-                if ptr.is_null() {
-                    None
-                } else {
-                    Some(unsafe { &*(ptr).cast::<CoroutineImpl<'c, Param, Yield, Return>>() })
-                }
-            })
-        }
-
-        fn clean_current() {
-            COROUTINE.with(|boxed| boxed.set(std::ptr::null()));
-        }
-    }
-
-    impl<'c, Param, Yield, Return> Coroutine<'c> for CoroutineImpl<'c, Param, Yield, Return>
-    where
-        Yield: Copy + Eq + PartialEq + Debug,
-        Return: Copy + Eq + PartialEq + Debug,
-    {
-        type Resume = Param;
-        type Yield = Yield;
-        type Return = Return;
-
-        fn new<F>(name: String, f: F, stack_size: usize) -> std::io::Result<Self>
-        where
-            F: FnOnce(
-                &dyn Suspender<Resume = Self::Resume, Yield = Self::Yield>,
-                Self::Resume,
-            ) -> Self::Return,
-            F: 'c,
-            Self: Sized,
-        {
-            let stack = DefaultStack::new(stack_size.max(page_size()))?;
-            let inner = ScopedCoroutine::with_stack(stack, |y, p| {
-                let suspender = SuspenderImpl::new(y);
-                SuspenderImpl::<Param, Yield>::init_current(&suspender);
-                let r = f(&suspender, p);
-                SuspenderImpl::<Param, Yield>::clean_current();
-                r
-            });
-            Ok(CoroutineImpl {
-                name,
-                inner,
-                state: Cell::new(CoroutineState::Created),
-                local: CoroutineLocal::default(),
-            })
-        }
-
-        fn resume_with(&mut self, arg: Self::Resume) -> CoroutineState<Self::Yield, Self::Return> {
-            let mut current = self.state.get_mut();
-            match current {
-                CoroutineState::Created | CoroutineState::Ready | CoroutineState::Suspend(_, 0) => {
-                    self.state.set(CoroutineState::Running);
-                }
-                CoroutineState::Complete(r) => return CoroutineState::Complete(*r),
-                _ => panic!("{} unexpected state {current}", self.name),
-            }
-            CoroutineImpl::<Param, Yield, Return>::init_current(self);
-            let r = match self.inner.resume(arg) {
-                CoroutineResult::Yield(y) => {
-                    current = self.state.get_mut();
-                    match current {
-                        CoroutineState::Running => {
-                            let new_state = CoroutineState::Suspend(
-                                y,
-                                SuspenderImpl::<Yield, Param>::timestamp(),
-                            );
-                            let previous = self.state.replace(new_state);
-                            assert_eq!(
-                                CoroutineState::Running,
-                                previous,
-                                "{} unexpected state {}",
-                                self.get_name(),
-                                previous
-                            );
-                            new_state
-                        }
-                        CoroutineState::SystemCall(val, syscall, state) => {
-                            CoroutineState::SystemCall(*val, *syscall, *state)
-                        }
-                        _ => panic!("{} unexpected state {current}", self.name),
-                    }
-                }
-                CoroutineResult::Return(r) => {
-                    let state = CoroutineState::Complete(r);
-                    let current = self.state.replace(state);
-                    assert_eq!(
-                        CoroutineState::Running,
-                        current,
-                        "{} unexpected state {}",
-                        self.get_name(),
-                        current
-                    );
-                    state
-                }
-            };
-            CoroutineImpl::<Param, Yield, Return>::clean_current();
-            r
-        }
-
-        fn get_name(&self) -> &str {
-            &self.name
-        }
-
-        fn local(&self) -> &CoroutineLocal<'c> {
-            &self.local
-        }
-    }
-}
-
-// #[cfg(all(feature = "boost", not(feature = "korosensei")))]
-// pub use boost::CoroutineImpl;
-#[cfg(feature = "boost")]
-mod boost {}
 
 #[cfg(test)]
 mod tests {
