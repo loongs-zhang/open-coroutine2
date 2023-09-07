@@ -1,4 +1,5 @@
 [workspace]
 members = [
+    "open-coroutine-timer",
     "open-coroutine-core",
 ]

@@ -44,30 +44,6 @@
 )]
 
 //! see `https://github.com/acl-dev/open-coroutine`
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-/// get the current wall clock in ns
-///
-/// # Panics
-/// if the time is before `UNIX_EPOCH`
-#[must_use]
-pub fn now() -> u64 {
-    u64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("1970-01-01 00:00:00 UTC was {} seconds ago!")
-            .as_nanos(),
-    )
-    .unwrap_or(u64::MAX)
-}
-
-/// current ns time add `dur`.
-#[must_use]
-pub fn get_timeout_time(dur: Duration) -> u64 {
-    u64::try_from(dur.as_nanos())
-        .map(|d| d.saturating_add(now()))
-        .unwrap_or(u64::MAX)
-}
 
 /// Coroutine abstraction and impl.
 pub mod coroutine;

@@ -33,7 +33,7 @@ impl<'s, SimpleSuspenderImpl: Suspender<'s, Yield = ()>> SimpleSuspender<'s>
 pub trait DelaySuspender<'s>: Suspender<'s> {
     /// Delay the execution of the coroutine.
     fn delay_with(&self, arg: Self::Yield, delay: Duration) -> Self::Resume {
-        self.until_with(arg, crate::get_timeout_time(delay))
+        self.until_with(arg, open_coroutine_timer::get_timeout_time(delay))
     }
 
     /// Delay the execution of the coroutine.
