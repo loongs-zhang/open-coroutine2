@@ -15,8 +15,8 @@ pub struct SuspenderImpl<'s, Param, Yield>(&'s Yielder<Param, Yield>);
 
 impl<'s, Param, Yield> Current<'s> for SuspenderImpl<'s, Param, Yield> {
     #[allow(clippy::ptr_as_ptr)]
-    fn init_current(suspender: &SuspenderImpl<'s, Param, Yield>) {
-        SUSPENDER.with(|c| c.set(suspender as *const _ as *const c_void));
+    fn init_current(current: &SuspenderImpl<'s, Param, Yield>) {
+        SUSPENDER.with(|c| c.set(current as *const _ as *const c_void));
     }
 
     fn current() -> Option<&'s Self> {
@@ -91,8 +91,8 @@ where
     Return: Copy + Eq + PartialEq,
 {
     #[allow(clippy::ptr_as_ptr)]
-    fn init_current(suspender: &CoroutineImpl<'c, Param, Yield, Return>) {
-        COROUTINE.with(|c| c.set(suspender as *const _ as *const c_void));
+    fn init_current(current: &CoroutineImpl<'c, Param, Yield, Return>) {
+        COROUTINE.with(|c| c.set(current as *const _ as *const c_void));
     }
 
     fn current() -> Option<&'c Self> {
@@ -208,9 +208,18 @@ where
 
     fn ready(&self) -> std::io::Result<()> {
         let current = self.state.get();
-        if CoroutineState::Created == current {
-            self.state.set(CoroutineState::Ready);
-            return Ok(());
+        match current {
+            CoroutineState::Created | CoroutineState::SystemCall(_, _, SyscallState::Finished) => {
+                self.state.set(CoroutineState::Ready);
+                return Ok(());
+            }
+            CoroutineState::Suspend(_, timestamp) => {
+                if timestamp <= open_coroutine_timer::now() {
+                    self.state.set(CoroutineState::Ready);
+                    return Ok(());
+                }
+            }
+            _ => {}
         }
         Err(Error::new(
             ErrorKind::Other,
@@ -225,9 +234,7 @@ where
     fn running(&self) -> std::io::Result<()> {
         let current = self.state.get();
         match current {
-            CoroutineState::Created
-            | CoroutineState::Ready
-            | CoroutineState::SystemCall(_, _, SyscallState::Finished) => {
+            CoroutineState::Created | CoroutineState::Ready => {
                 self.state.set(CoroutineState::Running);
                 return Ok(());
             }

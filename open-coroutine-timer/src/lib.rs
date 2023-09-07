@@ -146,8 +146,14 @@ impl<T> TimerEntry<T> {
 
 /// A queue for managing multiple `TimerEntry`.
 #[repr(C)]
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TimerList<T>(VecDeque<TimerEntry<T>>);
+
+impl<T> Default for TimerList<T> {
+    fn default() -> Self {
+        TimerList(VecDeque::new())
+    }
+}
 
 impl<T> TimerList<T> {
     /// Returns the number of elements in the deque.

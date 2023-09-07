@@ -31,6 +31,19 @@ impl<T: Debug> Drop for WorkStealQueue<T> {
 
 impl<T: Debug> WorkStealQueue<T> {
     /// Create a new `WorkStealQueue` instance.
+    #[allow(unsafe_code, trivial_casts, box_pointers)]
+    pub fn get_instance<'s>() -> &'s WorkStealQueue<T> {
+        static INSTANCE: AtomicUsize = AtomicUsize::new(0);
+        let mut ret = INSTANCE.load(Ordering::Relaxed);
+        if ret == 0 {
+            let ptr: &'s mut WorkStealQueue<T> = Box::leak(Box::default());
+            ret = ptr as *mut WorkStealQueue<T> as usize;
+            INSTANCE.store(ret, Ordering::Relaxed);
+        }
+        unsafe { &*(ret as *mut WorkStealQueue<T>) }
+    }
+
+    /// Create a new `WorkStealQueue` instance.
     #[must_use]
     pub fn new(local_queues_size: usize, local_capacity: usize) -> Self {
         WorkStealQueue {

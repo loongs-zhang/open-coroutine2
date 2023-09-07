@@ -15,7 +15,7 @@ pub mod local;
 /// Coroutine suspender abstraction.
 pub mod suspender;
 
-#[cfg(all(feature = "korosensei", not(feature = "boost")))]
+#[cfg(feature = "korosensei")]
 pub use korosensei::{CoroutineImpl, SuspenderImpl};
 #[allow(missing_docs)]
 #[cfg(feature = "korosensei")]
@@ -90,6 +90,9 @@ pub trait Coroutine<'c>: Debug + Current<'c> {
     /// Resumes the execution of this coroutine.
     ///
     /// The argument will be passed into the coroutine as a resume argument.
+    ///
+    /// # Errors
+    /// if current coroutine state is unexpected.
     fn resume_with(
         &mut self,
         arg: Self::Resume,
@@ -108,19 +111,32 @@ pub trait StateMachine<'c>: Coroutine<'c> {
     fn get_result(&self) -> Option<Self::Return>;
 
     /// created -> ready
+    /// syscall -> ready
+    /// suspend -> ready
+    ///
+    /// # Errors
+    /// if change state fails.
     fn ready(&self) -> std::io::Result<()>;
 
-    /// ready -> running
     /// created -> running
+    /// ready -> running
     /// suspend -> running
-    /// syscall -> running
+    ///
+    /// # Errors
+    /// if change state fails.
     fn running(&self) -> std::io::Result<()>;
 
     /// running -> suspend
+    ///
+    /// # Errors
+    /// if change state fails.
     fn suspend(&self, val: Self::Yield, timestamp: u64) -> std::io::Result<()>;
 
     /// running -> syscall
     /// inner: syscall -> syscall
+    ///
+    /// # Errors
+    /// if change state fails.
     fn syscall(
         &self,
         val: Self::Yield,
@@ -129,12 +145,18 @@ pub trait StateMachine<'c>: Coroutine<'c> {
     ) -> std::io::Result<()>;
 
     /// running -> complete
+    ///
+    /// # Errors
+    /// if change state fails.
     fn complete(&self, val: Self::Return) -> std::io::Result<()>;
 }
 
 /// A trait implemented for coroutines when Resume is ().
 pub trait SimpleCoroutine<'c>: Coroutine<'c, Resume = ()> {
     /// Resumes the execution of this coroutine.
+    ///
+    /// # Errors
+    /// see `resume_with`
     fn resume(&mut self) -> std::io::Result<CoroutineState<Self::Yield, Self::Return>>;
 }
 

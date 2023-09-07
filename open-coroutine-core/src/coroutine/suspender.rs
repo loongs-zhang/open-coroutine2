@@ -21,7 +21,7 @@ pub trait SimpleSuspender<'s>: Suspender<'s, Yield = ()> {
     fn suspend(&self) -> Self::Resume;
 }
 
-impl<'s, SimpleSuspenderImpl: Suspender<'s, Yield = ()>> SimpleSuspender<'s>
+impl<'s, SimpleSuspenderImpl: ?Sized + Suspender<'s, Yield = ()>> SimpleSuspender<'s>
     for SimpleSuspenderImpl
 {
     fn suspend(&self) -> Self::Resume {
@@ -47,7 +47,7 @@ thread_local! {
     static TIMESTAMP: Cell<u64> = Cell::new(0);
 }
 
-impl<'s, DelaySuspenderImpl: Suspender<'s>> DelaySuspender<'s> for DelaySuspenderImpl {
+impl<'s, DelaySuspenderImpl: ?Sized + Suspender<'s>> DelaySuspender<'s> for DelaySuspenderImpl {
     fn until_with(&self, arg: Self::Yield, timestamp: u64) -> Self::Resume {
         TIMESTAMP.with(|c| c.set(timestamp));
         self.suspend_with(arg)
@@ -67,7 +67,7 @@ pub trait SimpleDelaySuspender<'s>: DelaySuspender<'s, Yield = ()> {
     fn until(&self, timestamp: u64) -> Self::Resume;
 }
 
-impl<'s, SimpleDelaySuspenderImpl: DelaySuspender<'s, Yield = ()>> SimpleDelaySuspender<'s>
+impl<'s, SimpleDelaySuspenderImpl: ?Sized + DelaySuspender<'s, Yield = ()>> SimpleDelaySuspender<'s>
     for SimpleDelaySuspenderImpl
 {
     fn delay(&self, delay: Duration) -> Self::Resume {
