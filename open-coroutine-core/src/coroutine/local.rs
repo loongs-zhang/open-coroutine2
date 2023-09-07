@@ -5,7 +5,7 @@ use std::ffi::c_void;
 #[derive(Debug, Default)]
 pub struct CoroutineLocal<'c>(DashMap<&'c str, *mut c_void>);
 
-#[allow(missing_docs)]
+#[allow(missing_docs, box_pointers)]
 impl<'c> CoroutineLocal<'c> {
     pub fn put<V>(&self, key: &'c str, val: V) -> Option<V> {
         let v = Box::leak(Box::new(val));

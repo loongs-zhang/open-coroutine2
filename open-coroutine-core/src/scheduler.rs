@@ -5,10 +5,10 @@ use std::fmt::Debug;
 use std::time::Duration;
 
 /// A type for Scheduler.
-pub type SchedulableCoroutine = CoroutineImpl<'static, (), (), ()>;
+pub type SchedulableCoroutine<'s> = CoroutineImpl<'s, (), (), ()>;
 
 /// A trait implemented for schedulers.
-pub trait Scheduler<'s>: Debug + Current<'s> {
+pub trait Scheduler<'s>: Debug + Current<'s> + Listener {
     /// Set the default stack stack size for the coroutines in this scheduler.
     /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
     fn set_stack_size(&self, stack_size: usize);
@@ -19,7 +19,7 @@ pub trait Scheduler<'s>: Debug + Current<'s> {
         &self,
         f: impl FnOnce(&dyn Suspender<Resume = (), Yield = ()>, ()),
         stack_size: Option<usize>,
-    );
+    ) -> std::io::Result<()>;
 
     /// Resume a coroutine from the system call table to the ready queue,
     /// it's generally only required for framework level crates.
@@ -49,7 +49,7 @@ pub trait Scheduler<'s>: Debug + Current<'s> {
 }
 
 /// A trait implemented for schedulers, mainly used for monitoring.
-pub trait Listener {
+pub trait Listener: Debug {
     /// callback when a coroutine is created.
     /// This will be called by `Scheduler` when a coroutine is created.
     fn on_create(&self, _: &SchedulableCoroutine) {}

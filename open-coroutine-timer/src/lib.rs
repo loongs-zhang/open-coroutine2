@@ -3,16 +3,16 @@
     // https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html
     anonymous_parameters,
     bare_trait_objects,
-    // box_pointers, // use box pointer to allocate on heap
-    // elided_lifetimes_in_paths, // allow anonymous lifetime
+    box_pointers,
+    elided_lifetimes_in_paths,
     missing_copy_implementations,
     missing_debug_implementations,
     missing_docs,
     single_use_lifetimes,
-    // trivial_casts,
+    trivial_casts,
     trivial_numeric_casts,
-    // unreachable_pub, allow clippy::redundant_pub_crate lint instead
-    // unsafe_code,
+    unreachable_pub,
+    unsafe_code,
     unstable_features,
     unused_extern_crates,
     unused_import_braces,

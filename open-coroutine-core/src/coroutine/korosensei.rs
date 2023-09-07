@@ -1,13 +1,14 @@
-use crate::coroutine::constants::CoroutineState;
+use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::{DelaySuspender, Suspender, SUSPENDER};
-use crate::coroutine::{Coroutine, Current, COROUTINE};
+use crate::coroutine::{Coroutine, Current, StateMachine, COROUTINE};
 use corosensei::stack::DefaultStack;
 use corosensei::Yielder;
 use corosensei::{CoroutineResult, ScopedCoroutine};
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
+use std::io::{Error, ErrorKind};
 
 #[allow(missing_debug_implementations)]
 pub struct SuspenderImpl<'s, Param, Yield>(&'s Yielder<Param, Yield>);
@@ -144,54 +145,44 @@ where
         })
     }
 
-    fn resume_with(&mut self, arg: Self::Resume) -> CoroutineState<Self::Yield, Self::Return> {
-        let mut current = self.state.get_mut();
-        match current {
-            CoroutineState::Created | CoroutineState::Ready | CoroutineState::Suspend(_, 0) => {
-                self.state.set(CoroutineState::Running);
-            }
-            CoroutineState::Complete(r) => return CoroutineState::Complete(*r),
-            _ => panic!("{} unexpected state {current}", self.name),
+    fn resume_with(
+        &mut self,
+        arg: Self::Resume,
+    ) -> std::io::Result<CoroutineState<Self::Yield, Self::Return>> {
+        if let Some(r) = self.get_result() {
+            return Ok(CoroutineState::Complete(r));
         }
+        self.running()?;
         CoroutineImpl::<Param, Yield, Return>::init_current(self);
         let r = match self.inner.resume(arg) {
             CoroutineResult::Yield(y) => {
-                current = self.state.get_mut();
+                let current = self.state.get();
                 match current {
                     CoroutineState::Running => {
-                        let new_state =
-                            CoroutineState::Suspend(y, SuspenderImpl::<Yield, Param>::timestamp());
-                        let previous = self.state.replace(new_state);
-                        assert_eq!(
-                            CoroutineState::Running,
-                            previous,
-                            "{} unexpected state {}",
-                            self.get_name(),
-                            previous
-                        );
+                        let timestamp = SuspenderImpl::<Yield, Param>::timestamp();
+                        let new_state = CoroutineState::Suspend(y, timestamp);
+                        self.suspend(y, timestamp)?;
                         new_state
                     }
-                    CoroutineState::SystemCall(val, syscall, state) => {
-                        CoroutineState::SystemCall(*val, *syscall, *state)
+                    CoroutineState::SystemCall(_, syscall, state) => {
+                        self.syscall(y, syscall, state)?;
+                        CoroutineState::SystemCall(y, syscall, state)
                     }
-                    _ => panic!("{} unexpected state {current}", self.name),
+                    _ => {
+                        return Err(Error::new(
+                            ErrorKind::Other,
+                            format!("{} unexpected state {current}", self.name),
+                        ))
+                    }
                 }
             }
             CoroutineResult::Return(r) => {
-                let state = CoroutineState::Complete(r);
-                let current = self.state.replace(state);
-                assert_eq!(
-                    CoroutineState::Running,
-                    current,
-                    "{} unexpected state {}",
-                    self.get_name(),
-                    current
-                );
-                state
+                self.complete(r)?;
+                CoroutineState::Complete(r)
             }
         };
         CoroutineImpl::<Param, Yield, Return>::clean_current();
-        r
+        Ok(r)
     }
 
     fn get_name(&self) -> &str {
@@ -200,5 +191,125 @@ where
 
     fn local(&self) -> &CoroutineLocal<'c> {
         &self.local
+    }
+}
+
+impl<'c, Param, Yield, Return> StateMachine<'c> for CoroutineImpl<'c, Param, Yield, Return>
+where
+    Return: Copy + Debug + Eq + PartialEq,
+    Yield: Copy + Debug + Eq + PartialEq,
+{
+    fn get_result(&self) -> Option<Self::Return> {
+        match self.state.get() {
+            CoroutineState::Complete(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    fn ready(&self) -> std::io::Result<()> {
+        let current = self.state.get();
+        if CoroutineState::Created == current {
+            self.state.set(CoroutineState::Ready);
+            return Ok(());
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} unexpected {current}->{}",
+                self.name,
+                CoroutineState::<Yield, Return>::Ready
+            ),
+        ))
+    }
+
+    fn running(&self) -> std::io::Result<()> {
+        let current = self.state.get();
+        match current {
+            CoroutineState::Created
+            | CoroutineState::Ready
+            | CoroutineState::SystemCall(_, _, SyscallState::Finished) => {
+                self.state.set(CoroutineState::Running);
+                return Ok(());
+            }
+            CoroutineState::Suspend(_, timestamp) => {
+                if timestamp <= open_coroutine_timer::now() {
+                    self.state.set(CoroutineState::Running);
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} unexpected {current}->{}",
+                self.name,
+                CoroutineState::<Yield, Return>::Running
+            ),
+        ))
+    }
+
+    fn suspend(&self, val: Self::Yield, timestamp: u64) -> std::io::Result<()> {
+        let current = self.state.get();
+        if CoroutineState::Running == current {
+            self.state.set(CoroutineState::Suspend(val, timestamp));
+            return Ok(());
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} unexpected {current}->{}",
+                self.name,
+                CoroutineState::<Yield, Return>::Suspend(val, timestamp)
+            ),
+        ))
+    }
+
+    fn syscall(
+        &self,
+        val: Self::Yield,
+        syscall: Syscall,
+        syscall_state: SyscallState,
+    ) -> std::io::Result<()> {
+        let current = self.state.get();
+        match current {
+            CoroutineState::Running => {
+                self.state
+                    .set(CoroutineState::SystemCall(val, syscall, syscall_state));
+                return Ok(());
+            }
+            CoroutineState::SystemCall(_, original_syscall, _) => {
+                if original_syscall == syscall {
+                    self.state
+                        .set(CoroutineState::SystemCall(val, syscall, syscall_state));
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} unexpected {current}->{}",
+                self.name,
+                CoroutineState::<Yield, Return>::SystemCall(val, syscall, syscall_state)
+            ),
+        ))
+    }
+
+    fn complete(&self, val: Self::Return) -> std::io::Result<()> {
+        let current = self.state.get();
+        if CoroutineState::Running == current {
+            self.state.set(CoroutineState::Complete(val));
+            return Ok(());
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} unexpected {current}->{}",
+                self.name,
+                CoroutineState::<Yield, Return>::Complete(val)
+            ),
+        ))
     }
 }

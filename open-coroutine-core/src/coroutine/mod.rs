@@ -1,4 +1,4 @@
-use crate::coroutine::constants::CoroutineState;
+use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::Suspender;
 use std::cell::Cell;
@@ -90,9 +90,10 @@ pub trait Coroutine<'c>: Debug + Current<'c> {
     /// Resumes the execution of this coroutine.
     ///
     /// The argument will be passed into the coroutine as a resume argument.
-    ///
-    /// todo change to `std::io::Resule<CoroutineState<Self::Yield, Self::Return>>`
-    fn resume_with(&mut self, arg: Self::Resume) -> CoroutineState<Self::Yield, Self::Return>;
+    fn resume_with(
+        &mut self,
+        arg: Self::Resume,
+    ) -> std::io::Result<CoroutineState<Self::Yield, Self::Return>>;
 
     /// Get the name of this coroutine.
     fn get_name(&self) -> &str;
@@ -101,16 +102,46 @@ pub trait Coroutine<'c>: Debug + Current<'c> {
     fn local(&self) -> &CoroutineLocal<'c>;
 }
 
+/// A trait implemented for describing changes in the state of the coroutine.
+pub trait StateMachine<'c>: Coroutine<'c> {
+    /// Returns `Some<Self::Return>` if completed.
+    fn get_result(&self) -> Option<Self::Return>;
+
+    /// created -> ready
+    fn ready(&self) -> std::io::Result<()>;
+
+    /// ready -> running
+    /// created -> running
+    /// suspend -> running
+    /// syscall -> running
+    fn running(&self) -> std::io::Result<()>;
+
+    /// running -> suspend
+    fn suspend(&self, val: Self::Yield, timestamp: u64) -> std::io::Result<()>;
+
+    /// running -> syscall
+    /// inner: syscall -> syscall
+    fn syscall(
+        &self,
+        val: Self::Yield,
+        syscall: Syscall,
+        syscall_state: SyscallState,
+    ) -> std::io::Result<()>;
+
+    /// running -> complete
+    fn complete(&self, val: Self::Return) -> std::io::Result<()>;
+}
+
 /// A trait implemented for coroutines when Resume is ().
 pub trait SimpleCoroutine<'c>: Coroutine<'c, Resume = ()> {
     /// Resumes the execution of this coroutine.
-    fn resume(&mut self) -> CoroutineState<Self::Yield, Self::Return>;
+    fn resume(&mut self) -> std::io::Result<CoroutineState<Self::Yield, Self::Return>>;
 }
 
 impl<'c, SimpleCoroutineImpl: Coroutine<'c, Resume = ()>> SimpleCoroutine<'c>
     for SimpleCoroutineImpl
 {
-    fn resume(&mut self) -> CoroutineState<Self::Yield, Self::Return> {
+    fn resume(&mut self) -> std::io::Result<CoroutineState<Self::Yield, Self::Return>> {
         self.resume_with(())
     }
 }
@@ -153,7 +184,10 @@ mod tests {
             assert_eq!(0, param);
             1
         });
-        assert_eq!(CoroutineState::Complete(1), coroutine.resume_with(0));
+        assert_eq!(
+            CoroutineState::Complete(1),
+            coroutine.resume_with(0).unwrap()
+        );
     }
 
     #[test]
@@ -163,7 +197,10 @@ mod tests {
             assert_eq!(1, param);
             _ = suspender.suspend_with(2);
         });
-        assert_eq!(CoroutineState::Suspend(2, 0), coroutine.resume_with(1));
+        assert_eq!(
+            CoroutineState::Suspend(2, 0),
+            coroutine.resume_with(1).unwrap()
+        );
     }
 
     #[test]
@@ -174,9 +211,18 @@ mod tests {
             assert_eq!(5, suspender.suspend_with(4));
             6
         });
-        assert_eq!(CoroutineState::Suspend(2, 0), coroutine.resume_with(1));
-        assert_eq!(CoroutineState::Suspend(4, 0), coroutine.resume_with(3));
-        assert_eq!(CoroutineState::Complete(6), coroutine.resume_with(5));
+        assert_eq!(
+            CoroutineState::Suspend(2, 0),
+            coroutine.resume_with(1).unwrap()
+        );
+        assert_eq!(
+            CoroutineState::Suspend(4, 0),
+            coroutine.resume_with(3).unwrap()
+        );
+        assert_eq!(
+            CoroutineState::Complete(6),
+            coroutine.resume_with(5).unwrap()
+        );
     }
 
     #[test]
@@ -187,7 +233,10 @@ mod tests {
             assert!(CoroutineImpl::<i32, i32, i32>::current().is_some());
             1
         });
-        assert_eq!(CoroutineState::Complete(1), coroutine.resume_with(0));
+        assert_eq!(
+            CoroutineState::Complete(1),
+            coroutine.resume_with(0).unwrap()
+        );
     }
 
     #[test]
@@ -199,8 +248,14 @@ mod tests {
             println!("{:?}", backtrace::Backtrace::new());
             4
         });
-        assert_eq!(CoroutineState::Suspend(2, 0), coroutine.resume_with(1));
-        assert_eq!(CoroutineState::Complete(4), coroutine.resume_with(3));
+        assert_eq!(
+            CoroutineState::Suspend(2, 0),
+            coroutine.resume_with(1).unwrap()
+        );
+        assert_eq!(
+            CoroutineState::Complete(4),
+            coroutine.resume_with(3).unwrap()
+        );
     }
 
     #[test]
@@ -213,7 +268,7 @@ mod tests {
         });
         assert!(coroutine.local().put("1", 1).is_none());
         assert_eq!(Some(1), coroutine.local().put("1", 2));
-        assert_eq!(CoroutineState::Complete(()), coroutine.resume());
+        assert_eq!(CoroutineState::Complete(()), coroutine.resume().unwrap());
         assert_eq!(Some(3), coroutine.local().remove("1"));
     }
 }
