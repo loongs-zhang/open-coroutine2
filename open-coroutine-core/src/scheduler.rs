@@ -36,7 +36,7 @@ pub trait Scheduler<'s>: Debug + Current<'s> {
     /// Try scheduling the coroutines for up to `dur`.
     /// Allow multiple threads to concurrently submit coroutine to the scheduler, but only allow one thread to execute scheduling.
     fn try_timed_schedule(&mut self, dur: Duration) -> u64 {
-        self.try_timeout_schedule(crate::get_timeout_time(dur))
+        self.try_timeout_schedule(open_coroutine_timer::get_timeout_time(dur))
     }
 
     /// Attempt to schedule the coroutines before the `timeout_time` timestamp.

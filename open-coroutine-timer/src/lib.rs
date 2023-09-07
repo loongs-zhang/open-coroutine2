@@ -43,6 +43,8 @@
     clippy::single_char_lifetime_names,
 )]
 
+//! Associate `VecDeque` with `timestamps`.
+
 use std::collections::vec_deque::{Iter, IterMut};
 use std::collections::VecDeque;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -70,44 +72,55 @@ pub fn get_timeout_time(dur: Duration) -> u64 {
         .unwrap_or(u64::MAX)
 }
 
+/// A queue for managing multiple entries under a specified timestamp.
 #[derive(Debug, Eq, PartialEq)]
 pub struct TimerEntry<T> {
-    time: u64,
+    timestamp: u64,
     inner: VecDeque<T>,
 }
 
 impl<T> TimerEntry<T> {
+    /// Creates an empty deque.
     #[must_use]
-    pub fn new(time: u64) -> Self {
+    pub fn new(timestamp: u64) -> Self {
         TimerEntry {
-            time,
+            timestamp,
             inner: VecDeque::new(),
         }
     }
 
+    /// Returns the number of elements in the deque.
     #[must_use]
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Returns `true` if the deque is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
+    /// Get the timestamp.
     #[must_use]
-    pub fn get_time(&self) -> u64 {
-        self.time
+    pub fn get_timestamp(&self) -> u64 {
+        self.timestamp
     }
 
+    /// Removes the first element and returns it, or `None` if the deque is empty.
     pub fn pop_front(&mut self) -> Option<T> {
         self.inner.pop_front()
     }
 
+    /// Appends an element to the back of the deque.
     pub fn push_back(&mut self, t: T) {
         self.inner.push_back(t);
     }
 
+    /// Removes and returns the `t` from the deque.
+    /// Whichever end is closer to the removal point will be moved to make
+    /// room, and all the affected elements will be moved to new positions.
+    /// Returns `None` if `t` not found.
     pub fn remove(&mut self, t: &T) -> Option<T>
     where
         T: Ord,
@@ -119,49 +132,58 @@ impl<T> TimerEntry<T> {
         self.inner.remove(index)
     }
 
+    /// Returns a front-to-back iterator that returns mutable references.
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.inner.iter_mut()
     }
 
+    /// Returns a front-to-back iterator.
     #[must_use]
     pub fn iter(&self) -> Iter<'_, T> {
         self.inner.iter()
     }
 }
 
+/// A queue for managing multiple `TimerEntry`.
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct TimerList<T>(VecDeque<TimerEntry<T>>);
 
 impl<T> TimerList<T> {
+    /// Returns the number of elements in the deque.
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub fn insert(&mut self, time: u64, t: T) {
+    /// Inserts an element at `timestamp` within the deque, shifting all elements
+    /// with indices greater than or equal to `timestamp` towards the back.
+    pub fn insert(&mut self, timestamp: u64, t: T) {
         let index = self
             .0
-            .binary_search_by(|x| x.time.cmp(&time))
+            .binary_search_by(|x| x.timestamp.cmp(&timestamp))
             .unwrap_or_else(|x| x);
         if let Some(entry) = self.0.get_mut(index) {
             entry.push_back(t);
         } else {
-            let mut entry = TimerEntry::new(time);
+            let mut entry = TimerEntry::new(timestamp);
             entry.push_back(t);
             self.0.insert(index, entry);
         }
     }
 
+    /// Provides a reference to the front element, or `None` if the deque is empty.
     #[must_use]
     pub fn front(&self) -> Option<&TimerEntry<T>> {
         self.0.front()
     }
 
+    /// Removes the first element and returns it, or `None` if the deque is empty.
     pub fn pop_front(&mut self) -> Option<TimerEntry<T>> {
         self.0.pop_front()
     }
 
+    /// Returns `true` if the deque is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         for entry in &self.0 {
@@ -172,26 +194,33 @@ impl<T> TimerList<T> {
         true
     }
 
-    pub fn get_entry(&mut self, time: &u64) -> Option<&mut TimerEntry<T>> {
+    /// Provides a mutable reference to the entry at the given `timestamp`.
+    pub fn get_entry(&mut self, timestamp: &u64) -> Option<&mut TimerEntry<T>> {
         let index = self
             .0
-            .binary_search_by(|x| x.time.cmp(time))
+            .binary_search_by(|x| x.timestamp.cmp(timestamp))
             .unwrap_or_else(|x| x);
         self.0.get_mut(index)
     }
 
-    pub fn remove(&mut self, time: &u64) -> Option<TimerEntry<T>> {
+    /// Removes and returns the element at `timestamp` from the deque.
+    /// Whichever end is closer to the removal point will be moved to make
+    /// room, and all the affected elements will be moved to new positions.
+    /// Returns `None` if `timestamp` is out of bounds.
+    pub fn remove(&mut self, timestamp: &u64) -> Option<TimerEntry<T>> {
         let index = self
             .0
-            .binary_search_by(|x| x.time.cmp(time))
+            .binary_search_by(|x| x.timestamp.cmp(timestamp))
             .unwrap_or_else(|x| x);
         self.0.remove(index)
     }
 
+    /// Returns a front-to-back iterator that returns mutable references.
     pub fn iter_mut(&mut self) -> IterMut<'_, TimerEntry<T>> {
         self.0.iter_mut()
     }
 
+    /// Returns a front-to-back iterator.
     #[must_use]
     pub fn iter(&self) -> Iter<'_, TimerEntry<T>> {
         self.0.iter()
