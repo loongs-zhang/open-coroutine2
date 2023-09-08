@@ -50,3 +50,7 @@ pub mod coroutine;
 
 /// Scheduler abstraction and impl.
 pub mod scheduler;
+
+/// Monitor abstraction and impl.
+#[cfg(all(unix, feature = "preemptive-schedule"))]
+mod monitor;

@@ -6,6 +6,7 @@ use corosensei::stack::DefaultStack;
 use corosensei::Yielder;
 use corosensei::{CoroutineResult, ScopedCoroutine};
 use std::cell::Cell;
+use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
 use std::io::{Error, ErrorKind};
@@ -40,9 +41,9 @@ impl<'s, Param, Yield> Suspender<'s> for SuspenderImpl<'s, Param, Yield> {
     type Yield = Yield;
 
     fn suspend_with(&self, arg: Self::Yield) -> Self::Resume {
-        SuspenderImpl::<Param, Yield>::clean_current();
+        Self::clean_current();
         let param = self.0.suspend(arg);
-        SuspenderImpl::<Param, Yield>::init_current(self);
+        Self::init_current(self);
         param
     }
 }
@@ -111,6 +112,43 @@ where
     }
 }
 
+impl<Param, Yield, Return> Eq for CoroutineImpl<'_, Param, Yield, Return>
+where
+    Return: Copy + Debug + Eq + PartialEq,
+    Yield: Copy + Debug + Eq + PartialEq,
+{
+}
+
+impl<Param, Yield, Return> PartialEq<Self> for CoroutineImpl<'_, Param, Yield, Return>
+where
+    Return: Copy + Debug + Eq + PartialEq,
+    Yield: Copy + Debug + Eq + PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.name.eq(&other.name)
+    }
+}
+
+impl<Param, Yield, Return> Ord for CoroutineImpl<'_, Param, Yield, Return>
+where
+    Return: Copy + Debug + Eq + PartialEq,
+    Yield: Copy + Debug + Eq + PartialEq,
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
+impl<Param, Yield, Return> PartialOrd<Self> for CoroutineImpl<'_, Param, Yield, Return>
+where
+    Return: Copy + Debug + Eq + PartialEq,
+    Yield: Copy + Debug + Eq + PartialEq,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl<'c, Param, Yield, Return> Coroutine<'c> for CoroutineImpl<'c, Param, Yield, Return>
 where
     Yield: Copy + Eq + PartialEq + Debug,
@@ -149,14 +187,14 @@ where
         &mut self,
         arg: Self::Resume,
     ) -> std::io::Result<CoroutineState<Self::Yield, Self::Return>> {
-        if let Some(r) = self.get_result() {
+        if let CoroutineState::Complete(r) = self.state() {
             return Ok(CoroutineState::Complete(r));
         }
         self.running()?;
-        CoroutineImpl::<Param, Yield, Return>::init_current(self);
+        Self::init_current(self);
         let r = match self.inner.resume(arg) {
             CoroutineResult::Yield(y) => {
-                let current = self.state.get();
+                let current = self.state();
                 match current {
                     CoroutineState::Running => {
                         let timestamp = SuspenderImpl::<Yield, Param>::timestamp();
@@ -181,7 +219,7 @@ where
                 CoroutineState::Complete(r)
             }
         };
-        CoroutineImpl::<Param, Yield, Return>::clean_current();
+        Self::clean_current();
         Ok(r)
     }
 
@@ -199,15 +237,12 @@ where
     Return: Copy + Debug + Eq + PartialEq,
     Yield: Copy + Debug + Eq + PartialEq,
 {
-    fn get_result(&self) -> Option<Self::Return> {
-        match self.state.get() {
-            CoroutineState::Complete(r) => Some(r),
-            _ => None,
-        }
+    fn state(&self) -> CoroutineState<Self::Yield, Self::Return> {
+        self.state.get()
     }
 
     fn ready(&self) -> std::io::Result<()> {
-        let current = self.state.get();
+        let current = self.state();
         match current {
             CoroutineState::Created | CoroutineState::SystemCall(_, _, SyscallState::Finished) => {
                 self.state.set(CoroutineState::Ready);
@@ -232,7 +267,7 @@ where
     }
 
     fn running(&self) -> std::io::Result<()> {
-        let current = self.state.get();
+        let current = self.state();
         match current {
             CoroutineState::Created | CoroutineState::Ready => {
                 self.state.set(CoroutineState::Running);
@@ -257,7 +292,7 @@ where
     }
 
     fn suspend(&self, val: Self::Yield, timestamp: u64) -> std::io::Result<()> {
-        let current = self.state.get();
+        let current = self.state();
         if CoroutineState::Running == current {
             self.state.set(CoroutineState::Suspend(val, timestamp));
             return Ok(());
@@ -278,7 +313,7 @@ where
         syscall: Syscall,
         syscall_state: SyscallState,
     ) -> std::io::Result<()> {
-        let current = self.state.get();
+        let current = self.state();
         match current {
             CoroutineState::Running => {
                 self.state
@@ -305,7 +340,7 @@ where
     }
 
     fn complete(&self, val: Self::Return) -> std::io::Result<()> {
-        let current = self.state.get();
+        let current = self.state();
         if CoroutineState::Running == current {
             self.state.set(CoroutineState::Complete(val));
             return Ok(());

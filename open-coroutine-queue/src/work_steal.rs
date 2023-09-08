@@ -30,7 +30,7 @@ impl<T: Debug> Drop for WorkStealQueue<T> {
 }
 
 impl<T: Debug> WorkStealQueue<T> {
-    /// Create a new `WorkStealQueue` instance.
+    /// Get a global `WorkStealQueue` instance.
     #[allow(unsafe_code, trivial_casts, box_pointers)]
     pub fn get_instance<'s>() -> &'s WorkStealQueue<T> {
         static INSTANCE: AtomicUsize = AtomicUsize::new(0);
@@ -128,6 +128,12 @@ pub struct LocalQueue<'l, T: Debug> {
     queue: &'l Worker<T>,
     /// Fast random number generator.
     rand: FastRand,
+}
+
+impl<T: Debug> Default for LocalQueue<'_, T> {
+    fn default() -> Self {
+        WorkStealQueue::get_instance().local_queue()
+    }
 }
 
 impl<T: Debug> Drop for LocalQueue<'_, T> {

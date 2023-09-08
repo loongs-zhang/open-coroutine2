@@ -21,6 +21,9 @@ pub use korosensei::{CoroutineImpl, SuspenderImpl};
 #[cfg(feature = "korosensei")]
 mod korosensei;
 
+#[cfg(all(feature = "boost", not(feature = "korosensei")))]
+mod boost;
+
 #[allow(clippy::pedantic, missing_docs)]
 pub fn page_size() -> usize {
     static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
@@ -64,7 +67,7 @@ pub trait Current<'c> {
 }
 
 /// A trait implemented for coroutines.
-pub trait Coroutine<'c>: Debug + Current<'c> {
+pub trait Coroutine<'c>: Debug + Eq + PartialEq + Ord + PartialOrd + Current<'c> {
     /// The type of value this coroutine accepts as a resume argument.
     type Resume;
 
@@ -107,8 +110,8 @@ pub trait Coroutine<'c>: Debug + Current<'c> {
 
 /// A trait implemented for describing changes in the state of the coroutine.
 pub trait StateMachine<'c>: Coroutine<'c> {
-    /// Returns `Some<Self::Return>` if completed.
-    fn get_result(&self) -> Option<Self::Return>;
+    /// Returns the current state of this `StateMachine`.
+    fn state(&self) -> CoroutineState<Self::Yield, Self::Return>;
 
     /// created -> ready
     /// syscall -> ready
