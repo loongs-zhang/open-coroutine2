@@ -1,6 +1,6 @@
 use crate::coroutine::constants::CoroutineState;
-use crate::coroutine::suspender::SimpleSuspender;
-use crate::coroutine::{Coroutine, Current, StateMachine, SuspenderImpl};
+use crate::coroutine::suspender::{SimpleSuspender, SuspenderImpl};
+use crate::coroutine::{Coroutine, Current, StateMachine};
 use crate::scheduler::{Listener, SchedulableCoroutine};
 use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
@@ -140,7 +140,7 @@ impl Monitor for MonitorImpl {
                             std::thread::sleep(Duration::from_millis(1));
                         }
                     })
-                    .map_err(|e| Error::new(ErrorKind::Other, format!("{e:#?}")))?,
+                    .map_err(|e| Error::new(ErrorKind::Other, format!("{e:?}")))?,
             );
         }
         Ok(())

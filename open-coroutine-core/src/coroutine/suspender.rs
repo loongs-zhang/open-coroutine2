@@ -1,15 +1,16 @@
 use crate::coroutine::Current;
 use std::cell::Cell;
 use std::ffi::c_void;
+use std::panic::UnwindSafe;
 use std::time::Duration;
 
 /// A trait implemented for suspend the execution of the coroutine.
 pub trait Suspender<'s>: Current<'s> {
     /// The type of value this coroutine accepts as a resume argument.
-    type Resume;
+    type Resume: UnwindSafe;
 
     /// The type of value the coroutine yields.
-    type Yield;
+    type Yield: UnwindSafe;
 
     /// Suspend the execution of the coroutine.
     fn suspend_with(&self, arg: Self::Yield) -> Self::Resume;
@@ -82,3 +83,66 @@ impl<'s, SimpleDelaySuspenderImpl: ?Sized + DelaySuspender<'s, Yield = ()>> Simp
 thread_local! {
     pub(crate) static SUSPENDER: Cell<*const c_void> = Cell::new(std::ptr::null());
 }
+
+#[cfg(feature = "korosensei")]
+pub use korosensei::SuspenderImpl;
+#[allow(missing_docs, missing_debug_implementations)]
+#[cfg(feature = "korosensei")]
+mod korosensei {
+    use crate::coroutine::suspender::{Suspender, SUSPENDER};
+    use crate::coroutine::Current;
+    use corosensei::Yielder;
+    use std::ffi::c_void;
+    use std::panic::UnwindSafe;
+
+    pub struct SuspenderImpl<'s, Param, Yield>(pub(crate) &'s Yielder<Param, Yield>)
+    where
+        Param: UnwindSafe,
+        Yield: UnwindSafe;
+
+    impl<'s, Param, Yield> Current<'s> for SuspenderImpl<'s, Param, Yield>
+    where
+        Param: UnwindSafe,
+        Yield: UnwindSafe,
+    {
+        #[allow(clippy::ptr_as_ptr)]
+        fn init_current(current: &SuspenderImpl<'s, Param, Yield>) {
+            SUSPENDER.with(|c| c.set(current as *const _ as *const c_void));
+        }
+
+        fn current() -> Option<&'s Self> {
+            SUSPENDER.with(|boxed| {
+                let ptr = boxed.get();
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { &*(ptr).cast::<SuspenderImpl<'s, Param, Yield>>() })
+                }
+            })
+        }
+
+        fn clean_current() {
+            SUSPENDER.with(|boxed| boxed.set(std::ptr::null()));
+        }
+    }
+
+    impl<'s, Param, Yield> Suspender<'s> for SuspenderImpl<'s, Param, Yield>
+    where
+        Param: UnwindSafe,
+        Yield: UnwindSafe,
+    {
+        type Resume = Param;
+        type Yield = Yield;
+
+        fn suspend_with(&self, arg: Self::Yield) -> Self::Resume {
+            Self::clean_current();
+            let param = self.0.suspend(arg);
+            Self::init_current(self);
+            param
+        }
+    }
+}
+
+#[allow(missing_docs, missing_debug_implementations)]
+#[cfg(all(feature = "boost", not(feature = "corosensei")))]
+mod boost {}

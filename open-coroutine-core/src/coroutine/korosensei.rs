@@ -1,68 +1,33 @@
 use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
-use crate::coroutine::suspender::{DelaySuspender, Suspender, SUSPENDER};
-use crate::coroutine::{Coroutine, Current, StateMachine, COROUTINE};
+use crate::coroutine::suspender::{DelaySuspender, Suspender, SuspenderImpl};
+use crate::coroutine::{Coroutine, Current, Named, StateMachine, COROUTINE};
 use corosensei::stack::DefaultStack;
-use corosensei::Yielder;
 use corosensei::{CoroutineResult, ScopedCoroutine};
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
 use std::io::{Error, ErrorKind};
-
-#[allow(missing_debug_implementations)]
-pub struct SuspenderImpl<'s, Param, Yield>(&'s Yielder<Param, Yield>);
-
-impl<'s, Param, Yield> Current<'s> for SuspenderImpl<'s, Param, Yield> {
-    #[allow(clippy::ptr_as_ptr)]
-    fn init_current(current: &SuspenderImpl<'s, Param, Yield>) {
-        SUSPENDER.with(|c| c.set(current as *const _ as *const c_void));
-    }
-
-    fn current() -> Option<&'s Self> {
-        SUSPENDER.with(|boxed| {
-            let ptr = boxed.get();
-            if ptr.is_null() {
-                None
-            } else {
-                Some(unsafe { &*(ptr).cast::<SuspenderImpl<'s, Param, Yield>>() })
-            }
-        })
-    }
-
-    fn clean_current() {
-        SUSPENDER.with(|boxed| boxed.set(std::ptr::null()));
-    }
-}
-
-impl<'s, Param, Yield> Suspender<'s> for SuspenderImpl<'s, Param, Yield> {
-    type Resume = Param;
-    type Yield = Yield;
-
-    fn suspend_with(&self, arg: Self::Yield) -> Self::Resume {
-        Self::clean_current();
-        let param = self.0.suspend(arg);
-        Self::init_current(self);
-        param
-    }
-}
+use std::panic::{AssertUnwindSafe, UnwindSafe};
 
 pub struct CoroutineImpl<'c, Param, Yield, Return>
 where
-    Yield: Copy + Eq + PartialEq,
-    Return: Copy + Eq + PartialEq,
+    Param: UnwindSafe,
+    Yield: Copy + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Eq + PartialEq + UnwindSafe,
 {
     name: String,
-    inner: ScopedCoroutine<'c, Param, Yield, Return, DefaultStack>,
+    inner: ScopedCoroutine<'c, Param, Yield, std::io::Result<Return>, DefaultStack>,
     state: Cell<CoroutineState<Yield, Return>>,
     local: CoroutineLocal<'c>,
 }
 
 impl<Param, Yield, Return> Drop for CoroutineImpl<'_, Param, Yield, Return>
 where
-    Yield: Copy + Eq + PartialEq,
-    Return: Copy + Eq + PartialEq,
+    Param: UnwindSafe,
+    Yield: Copy + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Eq + PartialEq + UnwindSafe,
 {
     fn drop(&mut self) {
         //for test_yield case
@@ -74,8 +39,9 @@ where
 
 impl<Param, Yield, Return> Debug for CoroutineImpl<'_, Param, Yield, Return>
 where
-    Yield: Copy + Eq + PartialEq + Debug,
-    Return: Copy + Eq + PartialEq + Debug,
+    Param: UnwindSafe,
+    Yield: Copy + Eq + PartialEq + Debug + UnwindSafe,
+    Return: Copy + Eq + PartialEq + Debug + UnwindSafe,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Coroutine")
@@ -88,8 +54,9 @@ where
 
 impl<'c, Param, Yield, Return> Current<'c> for CoroutineImpl<'c, Param, Yield, Return>
 where
-    Yield: Copy + Eq + PartialEq,
-    Return: Copy + Eq + PartialEq,
+    Param: UnwindSafe,
+    Yield: Copy + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Eq + PartialEq + UnwindSafe,
 {
     #[allow(clippy::ptr_as_ptr)]
     fn init_current(current: &CoroutineImpl<'c, Param, Yield, Return>) {
@@ -114,15 +81,19 @@ where
 
 impl<Param, Yield, Return> Eq for CoroutineImpl<'_, Param, Yield, Return>
 where
-    Return: Copy + Debug + Eq + PartialEq,
-    Yield: Copy + Debug + Eq + PartialEq,
+    Param: UnwindSafe,
+
+    Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
 }
 
 impl<Param, Yield, Return> PartialEq<Self> for CoroutineImpl<'_, Param, Yield, Return>
 where
-    Return: Copy + Debug + Eq + PartialEq,
-    Yield: Copy + Debug + Eq + PartialEq,
+    Param: UnwindSafe,
+
+    Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
     fn eq(&self, other: &Self) -> bool {
         self.name.eq(&other.name)
@@ -131,8 +102,10 @@ where
 
 impl<Param, Yield, Return> Ord for CoroutineImpl<'_, Param, Yield, Return>
 where
-    Return: Copy + Debug + Eq + PartialEq,
-    Yield: Copy + Debug + Eq + PartialEq,
+    Param: UnwindSafe,
+
+    Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
     fn cmp(&self, other: &Self) -> Ordering {
         self.name.cmp(&other.name)
@@ -141,29 +114,46 @@ where
 
 impl<Param, Yield, Return> PartialOrd<Self> for CoroutineImpl<'_, Param, Yield, Return>
 where
-    Return: Copy + Debug + Eq + PartialEq,
-    Yield: Copy + Debug + Eq + PartialEq,
+    Param: UnwindSafe,
+
+    Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
+impl<Param, Yield, Return> Named for CoroutineImpl<'_, Param, Yield, Return>
+where
+    Param: UnwindSafe,
+
+    Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
+{
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+}
+
 impl<'c, Param, Yield, Return> Coroutine<'c> for CoroutineImpl<'c, Param, Yield, Return>
 where
-    Yield: Copy + Eq + PartialEq + Debug,
-    Return: Copy + Eq + PartialEq + Debug,
+    Param: UnwindSafe,
+    Yield: Copy + Eq + PartialEq + Debug + UnwindSafe,
+    Return: Copy + Eq + PartialEq + Debug + UnwindSafe,
 {
     type Resume = Param;
     type Yield = Yield;
     type Return = Return;
 
+    #[allow(box_pointers)]
     fn new<F>(name: String, f: F, stack_size: usize) -> std::io::Result<Self>
     where
         F: FnOnce(
             &dyn Suspender<Resume = Self::Resume, Yield = Self::Yield>,
             Self::Resume,
         ) -> Self::Return,
+        F: UnwindSafe,
         F: 'c,
         Self: Sized,
     {
@@ -171,9 +161,9 @@ where
         let inner = ScopedCoroutine::with_stack(stack, |y, p| {
             let suspender = SuspenderImpl(y);
             SuspenderImpl::<Param, Yield>::init_current(&suspender);
-            let r = f(&suspender, p);
+            let r = std::panic::catch_unwind(AssertUnwindSafe(|| f(&suspender, p)));
             SuspenderImpl::<Param, Yield>::clean_current();
-            r
+            r.map_err(|e| Error::new(ErrorKind::Other, format!("{e:?}")))
         });
         Ok(CoroutineImpl {
             name,
@@ -214,17 +204,14 @@ where
                     }
                 }
             }
-            CoroutineResult::Return(r) => {
+            CoroutineResult::Return(result) => {
+                let r = result?;
                 self.complete(r)?;
                 CoroutineState::Complete(r)
             }
         };
         Self::clean_current();
         Ok(r)
-    }
-
-    fn get_name(&self) -> &str {
-        &self.name
     }
 
     fn local(&self) -> &CoroutineLocal<'c> {
@@ -234,8 +221,10 @@ where
 
 impl<'c, Param, Yield, Return> StateMachine<'c> for CoroutineImpl<'c, Param, Yield, Return>
 where
-    Return: Copy + Debug + Eq + PartialEq,
-    Yield: Copy + Debug + Eq + PartialEq,
+    Param: UnwindSafe,
+
+    Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
+    Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
     fn state(&self) -> CoroutineState<Self::Yield, Self::Return> {
         self.state.get()

@@ -1,6 +1,6 @@
 use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::suspender::Suspender;
-use crate::coroutine::{Coroutine, CoroutineImpl, Current, SimpleCoroutine, StateMachine};
+use crate::coroutine::{Coroutine, CoroutineImpl, Current, Named, SimpleCoroutine, StateMachine};
 use dashmap::DashMap;
 use open_coroutine_queue::LocalQueue;
 use open_coroutine_timer::TimerList;
@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
+use std::panic::UnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -16,7 +17,7 @@ use std::time::Duration;
 pub type SchedulableCoroutine<'s> = CoroutineImpl<'s, (), (), ()>;
 
 /// A trait implemented for schedulers.
-pub trait Scheduler<'s>: Debug + Current<'s> + Listener {
+pub trait Scheduler<'s>: Debug + Named + Current<'s> + Listener {
     /// Extension points within the open-coroutine framework.
     fn init(&mut self);
 
@@ -32,7 +33,7 @@ pub trait Scheduler<'s>: Debug + Current<'s> + Listener {
     /// if create coroutine fails.
     fn submit(
         &self,
-        f: impl FnOnce(&dyn Suspender<Resume = (), Yield = ()>, ()) + 's,
+        f: impl FnOnce(&dyn Suspender<Resume = (), Yield = ()>, ()) + UnwindSafe + 's,
         stack_size: Option<usize>,
     ) -> std::io::Result<()>;
 
@@ -235,12 +236,16 @@ impl Listener for SchedulerImpl<'_> {
     }
 }
 
+impl Named for SchedulerImpl<'_> {
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+}
+
 impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     fn init(&mut self) {
         #[cfg(all(unix, feature = "preemptive-schedule"))]
-        {
-            self.add_listener(crate::monitor::MonitorListener {});
-        }
+        self.add_listener(crate::monitor::MonitorListener {});
     }
 
     fn set_stack_size(&self, stack_size: usize) {
@@ -249,7 +254,7 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
 
     fn submit(
         &self,
-        f: impl FnOnce(&dyn Suspender<Resume = (), Yield = ()>, ()) + 's,
+        f: impl FnOnce(&dyn Suspender<Resume = (), Yield = ()>, ()) + UnwindSafe + 's,
         stack_size: Option<usize>,
     ) -> std::io::Result<()> {
         let coroutine = SchedulableCoroutine::new(

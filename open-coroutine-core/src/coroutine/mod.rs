@@ -4,6 +4,7 @@ use crate::coroutine::suspender::Suspender;
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::fmt::Debug;
+use std::panic::UnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Constants.
@@ -16,7 +17,7 @@ pub mod local;
 pub mod suspender;
 
 #[cfg(feature = "korosensei")]
-pub use korosensei::{CoroutineImpl, SuspenderImpl};
+pub use korosensei::CoroutineImpl;
 #[allow(missing_docs)]
 #[cfg(feature = "korosensei")]
 mod korosensei;
@@ -48,6 +49,12 @@ pub fn page_size() -> usize {
 /// min stack size for backtrace
 pub const DEFAULT_STACK_SIZE: usize = 64 * 1024;
 
+/// Give the object a name.
+pub trait Named {
+    /// Get the name of this object.
+    fn get_name(&self) -> &str;
+}
+
 /// A trait implemented for which needs `current()`.
 pub trait Current<'c> {
     /// Init the current.
@@ -67,15 +74,15 @@ pub trait Current<'c> {
 }
 
 /// A trait implemented for coroutines.
-pub trait Coroutine<'c>: Debug + Eq + PartialEq + Ord + PartialOrd + Current<'c> {
+pub trait Coroutine<'c>: Debug + Eq + PartialEq + Ord + PartialOrd + Named + Current<'c> {
     /// The type of value this coroutine accepts as a resume argument.
-    type Resume;
+    type Resume: UnwindSafe;
 
     /// The type of value this coroutine yields.
-    type Yield: Copy + Eq + PartialEq;
+    type Yield: Copy + Eq + PartialEq + UnwindSafe;
 
     /// The type of value this coroutine returns upon completion.
-    type Return: Copy + Eq + PartialEq;
+    type Return: Copy + Eq + PartialEq + UnwindSafe;
 
     /// Create a new coroutine.
     ///
@@ -87,6 +94,7 @@ pub trait Coroutine<'c>: Debug + Eq + PartialEq + Ord + PartialOrd + Current<'c>
             &dyn Suspender<Resume = Self::Resume, Yield = Self::Yield>,
             Self::Resume,
         ) -> Self::Return,
+        F: UnwindSafe,
         F: 'c,
         Self: Sized;
 
@@ -100,9 +108,6 @@ pub trait Coroutine<'c>: Debug + Eq + PartialEq + Ord + PartialOrd + Current<'c>
         &mut self,
         arg: Self::Resume,
     ) -> std::io::Result<CoroutineState<Self::Yield, Self::Return>>;
-
-    /// Get the name of this coroutine.
-    fn get_name(&self) -> &str;
 
     /// put/get some custom data to it.
     fn local(&self) -> &CoroutineLocal<'c>;
@@ -295,5 +300,13 @@ mod tests {
         assert_eq!(Some(1), coroutine.local().put("1", 2));
         assert_eq!(CoroutineState::Complete(()), coroutine.resume().unwrap());
         assert_eq!(Some(3), coroutine.local().remove("1"));
+    }
+
+    #[test]
+    fn test_panic() {
+        let mut coroutine = co!(|_: &dyn Suspender<'_, Yield = (), Resume = ()>, ()| {
+            panic!("test panic");
+        });
+        assert!(coroutine.resume().is_err());
     }
 }
