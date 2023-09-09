@@ -1,3 +1,4 @@
+use crate::blocker::Blocker;
 use crate::coroutine::constants::CoroutineState;
 use crate::coroutine::suspender::{SimpleSuspender, SuspenderImpl};
 use crate::coroutine::{Coroutine, Current, StateMachine};
@@ -44,21 +45,26 @@ trait Monitor {
     fn remove(&self, timestamp: u64, coroutine: &SchedulableCoroutine);
 }
 
+#[allow(box_pointers)]
 #[derive(Debug)]
 struct MonitorImpl {
     cpu: usize,
     tasks: UnsafeCell<TimerList<TaskNode>>,
     run: AtomicBool,
     monitor: UnsafeCell<MaybeUninit<JoinHandle<()>>>,
+    blocker: Box<dyn Blocker>,
 }
 
 impl Default for MonitorImpl {
+    #[allow(box_pointers)]
     fn default() -> Self {
+        let blocker = Box::new(crate::blocker::SleepBlocker {});
         MonitorImpl {
             cpu: 0,
             tasks: UnsafeCell::new(TimerList::default()),
             run: AtomicBool::default(),
             monitor: UnsafeCell::new(MaybeUninit::uninit()),
+            blocker,
         }
     }
 }
@@ -137,7 +143,8 @@ impl Monitor for MonitorImpl {
                                 }
                             }
                             //monitor线程不执行协程计算任务，每次循环至少wait 1ms
-                            std::thread::sleep(Duration::from_millis(1));
+                            #[allow(box_pointers)]
+                            monitor.blocker.block(Duration::from_millis(1));
                         }
                     })
                     .map_err(|e| Error::new(ErrorKind::Other, format!("{e:?}")))?,

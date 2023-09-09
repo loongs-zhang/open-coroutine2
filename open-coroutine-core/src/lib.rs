@@ -48,9 +48,15 @@
 /// Coroutine abstraction and impl.
 pub mod coroutine;
 
+/// Blocker abstraction and impl.
+pub mod blocker;
+
 /// Scheduler abstraction and impl.
 pub mod scheduler;
 
 /// Monitor abstraction and impl.
 #[cfg(all(unix, feature = "preemptive-schedule"))]
 mod monitor;
+
+/// Coroutine pool abstraction and impl.
+pub mod pool;

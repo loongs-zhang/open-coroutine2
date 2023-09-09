@@ -17,7 +17,7 @@ use std::time::Duration;
 pub type SchedulableCoroutine<'s> = CoroutineImpl<'s, (), (), ()>;
 
 /// A trait implemented for schedulers.
-pub trait Scheduler<'s>: Debug + Named + Current<'s> + Listener {
+pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     /// Extension points within the open-coroutine framework.
     fn init(&mut self);
 
