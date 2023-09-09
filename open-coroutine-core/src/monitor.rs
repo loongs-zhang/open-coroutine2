@@ -205,6 +205,12 @@ impl Listener for MonitorListener {
             MonitorImpl::get_instance().remove(*timestamp, coroutine);
         }
     }
+
+    fn on_error(&self, _: u64, coroutine: &SchedulableCoroutine, _: &str) {
+        if let Some(timestamp) = coroutine.local().get(MONITOR_TIMESTAMP) {
+            MonitorImpl::get_instance().remove(*timestamp, coroutine);
+        }
+    }
 }
 
 #[allow(box_pointers)]

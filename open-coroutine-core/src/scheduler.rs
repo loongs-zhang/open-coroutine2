@@ -101,6 +101,10 @@ pub trait Listener: Debug {
     /// callback when a coroutine is completed.
     /// This will be called by `Scheduler` when a coroutine is completed.
     fn on_complete(&self, _: u64, _: &SchedulableCoroutine) {}
+
+    /// callback when a coroutine is panic.
+    /// This will be called by `Scheduler` when a coroutine is panic.
+    fn on_error(&self, _: u64, _: &SchedulableCoroutine, _: &str) {}
 }
 
 #[allow(missing_docs, box_pointers)]
@@ -234,6 +238,12 @@ impl Listener for SchedulerImpl<'_> {
             listener.on_complete(timeout_time, coroutine);
         }
     }
+
+    fn on_error(&self, timeout_time: u64, coroutine: &SchedulableCoroutine, message: &str) {
+        for listener in &self.listeners {
+            listener.on_error(timeout_time, coroutine, message);
+        }
+    }
 }
 
 impl Named for SchedulerImpl<'_> {
@@ -333,6 +343,9 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
                                 CoroutineState::Complete(_) => {
                                     self.on_complete(timeout_time, &coroutine);
                                 }
+                                CoroutineState::Error(message) => {
+                                    self.on_error(timeout_time, &coroutine, message);
+                                }
                                 _ => {
                                     Self::clean_current();
                                     return Err(Error::new(
@@ -431,11 +444,14 @@ mod tests {
             fn on_complete(&self, _: u64, coroutine: &SchedulableCoroutine) {
                 println!("{:?}", coroutine);
             }
+            fn on_error(&self, _: u64, coroutine: &SchedulableCoroutine, message: &str) {
+                println!("{:?} {message}", coroutine);
+            }
         }
 
         let mut scheduler = SchedulerImpl::default();
         scheduler.add_listener(TestListener {});
-        scheduler.submit(|_, _| println!("1"), None)?;
+        scheduler.submit(|_, _| panic!("1"), None)?;
         scheduler.submit(|_, _| println!("2"), None)?;
         scheduler.try_schedule()
     }

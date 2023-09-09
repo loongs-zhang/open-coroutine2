@@ -81,6 +81,8 @@ where
     SystemCall(Y, Syscall, SyscallState),
     /// The coroutine completed with a return value.
     Complete(R),
+    /// The coroutine completed with a error message.
+    Error(&'static str),
 }
 
 impl<Y, R> Display for CoroutineState<Y, R>

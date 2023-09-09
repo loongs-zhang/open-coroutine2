@@ -157,6 +157,12 @@ pub trait StateMachine<'c>: Coroutine<'c> {
     /// # Errors
     /// if change state fails.
     fn complete(&self, val: Self::Return) -> std::io::Result<()>;
+
+    /// running -> error
+    ///
+    /// # Errors
+    /// if change state fails.
+    fn error(&self, val: &'static str) -> std::io::Result<()>;
 }
 
 /// A trait implemented for coroutines when Resume is ().
@@ -307,6 +313,12 @@ mod tests {
         let mut coroutine = co!(|_: &dyn Suspender<'_, Yield = (), Resume = ()>, ()| {
             panic!("test panic");
         });
-        assert!(coroutine.resume().is_err());
+        let result = coroutine.resume();
+        assert!(result.is_ok());
+        let error = match result.unwrap() {
+            CoroutineState::Error(_) => true,
+            _ => false,
+        };
+        assert!(error);
     }
 }

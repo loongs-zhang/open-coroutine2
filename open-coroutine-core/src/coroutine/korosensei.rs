@@ -11,6 +11,7 @@ use std::fmt::{Debug, Formatter};
 use std::io::{Error, ErrorKind};
 use std::panic::{AssertUnwindSafe, UnwindSafe};
 
+#[allow(box_pointers)]
 pub struct CoroutineImpl<'c, Param, Yield, Return>
 where
     Param: UnwindSafe,
@@ -18,7 +19,7 @@ where
     Return: Copy + Eq + PartialEq + UnwindSafe,
 {
     name: String,
-    inner: ScopedCoroutine<'c, Param, Yield, std::io::Result<Return>, DefaultStack>,
+    inner: ScopedCoroutine<'c, Param, Yield, std::thread::Result<Return>, DefaultStack>,
     state: Cell<CoroutineState<Yield, Return>>,
     local: CoroutineLocal<'c>,
 }
@@ -29,6 +30,7 @@ where
     Yield: Copy + Eq + PartialEq + UnwindSafe,
     Return: Copy + Eq + PartialEq + UnwindSafe,
 {
+    #[allow(box_pointers)]
     fn drop(&mut self) {
         //for test_yield case
         if self.inner.started() && !self.inner.done() {
@@ -163,7 +165,7 @@ where
             SuspenderImpl::<Param, Yield>::init_current(&suspender);
             let r = std::panic::catch_unwind(AssertUnwindSafe(|| f(&suspender, p)));
             SuspenderImpl::<Param, Yield>::clean_current();
-            r.map_err(|e| Error::new(ErrorKind::Other, format!("{e:?}")))
+            r
         });
         Ok(CoroutineImpl {
             name,
@@ -182,6 +184,7 @@ where
         }
         self.running()?;
         Self::init_current(self);
+        #[allow(box_pointers)]
         let r = match self.inner.resume(arg) {
             CoroutineResult::Yield(y) => {
                 let current = self.state();
@@ -204,10 +207,17 @@ where
                     }
                 }
             }
+            #[allow(box_pointers)]
             CoroutineResult::Return(result) => {
-                let r = result?;
-                self.complete(r)?;
-                CoroutineState::Complete(r)
+                if let Ok(returns) = result {
+                    self.complete(returns)?;
+                    CoroutineState::Complete(returns)
+                } else {
+                    let error = result.unwrap_err();
+                    let message = error.downcast_ref::<&'static str>().unwrap();
+                    self.error(message)?;
+                    CoroutineState::Error(message)
+                }
             }
         };
         Self::clean_current();
@@ -340,6 +350,22 @@ where
                 "{} unexpected {current}->{}",
                 self.name,
                 CoroutineState::<Yield, Return>::Complete(val)
+            ),
+        ))
+    }
+
+    fn error(&self, val: &'static str) -> std::io::Result<()> {
+        let current = self.state();
+        if CoroutineState::Running == current {
+            self.state.set(CoroutineState::Error(val));
+            return Ok(());
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} unexpected {current}->{}",
+                self.name,
+                CoroutineState::<Yield, Return>::Error(val)
             ),
         ))
     }
