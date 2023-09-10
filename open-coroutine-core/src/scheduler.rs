@@ -26,6 +26,7 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn set_stack_size(&self, stack_size: usize);
 
     /// Submit a closure to new coroutine, then the coroutine will be push into ready queue.
+    ///
     /// Allow multiple threads to concurrently submit coroutine to the scheduler,
     /// but only allow one thread to execute scheduling.
     ///
@@ -47,6 +48,7 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn try_resume(&self, co_name: &'s str) -> std::io::Result<()>;
 
     /// Schedule the coroutines.
+    ///
     /// Allow multiple threads to concurrently submit coroutine to the scheduler,
     /// but only allow one thread to execute scheduling.
     ///
@@ -58,6 +60,7 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     }
 
     /// Try scheduling the coroutines for up to `dur`.
+    ///
     /// Allow multiple threads to concurrently submit coroutine to the scheduler,
     /// but only allow one thread to execute scheduling.
     ///
@@ -68,8 +71,10 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     }
 
     /// Attempt to schedule the coroutines before the `timeout_time` timestamp.
+    ///
     /// Allow multiple threads to concurrently submit coroutine to the scheduler,
     /// but only allow one thread to execute scheduling.
+    ///
     /// Returns the left time in ns.
     ///
     /// # Errors
@@ -173,7 +178,7 @@ impl Drop for SchedulerImpl<'_> {
 }
 
 thread_local! {
-    pub(crate) static SCHEDULER: Cell<*const c_void> = Cell::new(std::ptr::null());
+    static SCHEDULER: Cell<*const c_void> = Cell::new(std::ptr::null());
 }
 
 impl<'s> Current<'s> for SchedulerImpl<'s> {

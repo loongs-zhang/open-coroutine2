@@ -23,7 +23,7 @@ pub trait Task<'t>: Named {
     ///
     /// # Errors
     /// if an exception occurred while executing this task.
-    fn run<'e>(self) -> Result<Option<usize>, &'e str>;
+    fn run<'e>(self) -> (String, Result<Option<usize>, &'e str>);
 }
 
 #[repr(C)]
@@ -72,10 +72,13 @@ impl<'t> Task<'t> for TaskImpl<'t> {
     }
 
     #[allow(box_pointers)]
-    fn run<'e>(self) -> Result<Option<usize>, &'e str> {
+    fn run<'e>(self) -> (String, Result<Option<usize>, &'e str>) {
         let paran = self.get_param();
-        std::panic::catch_unwind(|| (self.func)(paran))
-            .map_err(|e| *e.downcast_ref::<&'static str>().unwrap())
+        (
+            self.name,
+            std::panic::catch_unwind(|| (self.func)(paran))
+                .map_err(|e| *e.downcast_ref::<&'static str>().unwrap()),
+        )
     }
 }
 
@@ -93,7 +96,7 @@ mod tests {
             },
             None,
         );
-        assert_eq!(Ok(None), task.run());
+        assert_eq!((String::from("test"), Ok(None)), task.run());
     }
 
     #[test]
@@ -105,6 +108,6 @@ mod tests {
             },
             None,
         );
-        assert_eq!(Err("no"), task.run());
+        assert_eq!((String::from("test"), Err("no")), task.run());
     }
 }
