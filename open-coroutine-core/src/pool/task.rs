@@ -5,11 +5,11 @@ use std::panic::UnwindSafe;
 
 /// A trait implemented for describing task.
 /// Note: the param and the result is raw pointer.
-pub trait Task: Named + UnwindSafe {
+pub trait Task<'t>: Named {
     /// Create a new `Task` instance.
     fn new(
         name: String,
-        func: impl FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 'static,
+        func: impl FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 't,
         param: Option<usize>,
     ) -> Self;
 
@@ -28,13 +28,13 @@ pub trait Task: Named + UnwindSafe {
 
 #[repr(C)]
 #[allow(clippy::type_complexity, box_pointers, missing_docs)]
-pub struct TaskImpl {
+pub struct TaskImpl<'t> {
     name: String,
-    func: Box<dyn FnOnce(Option<usize>) -> Option<usize> + UnwindSafe>,
+    func: Box<dyn FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 't>,
     param: Cell<Option<usize>>,
 }
 
-impl Debug for TaskImpl {
+impl Debug for TaskImpl<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Task")
             .field("name", &self.name)
@@ -43,17 +43,17 @@ impl Debug for TaskImpl {
     }
 }
 
-impl Named for TaskImpl {
+impl Named for TaskImpl<'_> {
     fn get_name(&self) -> &str {
         &self.name
     }
 }
 
-impl Task for TaskImpl {
+impl<'t> Task<'t> for TaskImpl<'t> {
     #[allow(box_pointers)]
     fn new(
         name: String,
-        func: impl FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 'static,
+        func: impl FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 't,
         param: Option<usize>,
     ) -> Self {
         TaskImpl {
@@ -76,5 +76,35 @@ impl Task for TaskImpl {
         let paran = self.get_param();
         std::panic::catch_unwind(|| (self.func)(paran))
             .map_err(|e| *e.downcast_ref::<&'static str>().unwrap())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test() {
+        let task = TaskImpl::new(
+            String::from("test"),
+            |p| {
+                println!("hello");
+                p
+            },
+            None,
+        );
+        assert_eq!(Ok(None), task.run());
+    }
+
+    #[test]
+    fn test_panic() {
+        let task = TaskImpl::new(
+            String::from("test"),
+            |_| {
+                panic!("no");
+            },
+            None,
+        );
+        assert_eq!(Err("no"), task.run());
     }
 }

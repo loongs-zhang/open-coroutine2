@@ -77,7 +77,13 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn try_timeout_schedule(&mut self, timeout_time: u64) -> std::io::Result<u64>;
 
     /// Add a listener to this scheduler.
-    fn add_listener(&mut self, listener: impl Listener + 'static);
+    #[allow(box_pointers)]
+    fn add_listener(&mut self, listener: impl Listener + 's) {
+        self.add_raw_listener(Box::new(listener));
+    }
+
+    /// Add a raw listener to this scheduler.
+    fn add_raw_listener(&mut self, listener: Box<dyn Listener + 's>);
 }
 
 /// A trait implemented for schedulers, mainly used for monitoring.
@@ -115,7 +121,7 @@ pub struct SchedulerImpl<'s> {
     ready: LocalQueue<'s, SchedulableCoroutine<'s>>,
     suspend: TimerList<SchedulableCoroutine<'s>>,
     syscall: DashMap<&'s str, SchedulableCoroutine<'s>>,
-    listeners: VecDeque<Box<dyn Listener>>,
+    listeners: VecDeque<Box<dyn Listener + 's>>,
 }
 
 impl SchedulerImpl<'_> {
@@ -296,12 +302,11 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
             }
             // check ready
             for _ in 0..self.suspend.len() {
-                if let Some(entry) = self.suspend.front() {
-                    let exec_time = entry.get_timestamp();
-                    if open_coroutine_timer::now() < exec_time {
+                if let Some((exec_time, _)) = self.suspend.front() {
+                    if open_coroutine_timer::now() < *exec_time {
                         break;
                     }
-                    if let Some(mut entry) = self.suspend.pop_front() {
+                    if let Some((_, mut entry)) = self.suspend.pop_front() {
                         while !entry.is_empty() {
                             if let Some(coroutine) = entry.pop_front() {
                                 if let Err(e) = coroutine.ready() {
@@ -366,8 +371,8 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     }
 
     #[allow(box_pointers)]
-    fn add_listener(&mut self, listener: impl Listener + 'static) {
-        self.listeners.push_back(Box::new(listener));
+    fn add_raw_listener(&mut self, listener: Box<dyn Listener + 's>) {
+        self.listeners.push_back(listener);
     }
 }
 

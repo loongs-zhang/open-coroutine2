@@ -59,4 +59,5 @@ pub mod scheduler;
 mod monitor;
 
 /// Coroutine pool abstraction and impl.
+#[allow(unused_imports)]
 pub mod pool;

@@ -124,9 +124,8 @@ impl Monitor for MonitorImpl {
                         let tasks = unsafe { &*monitor.tasks.get() };
                         while monitor.run.load(Ordering::Acquire) || !tasks.is_empty() {
                             //只遍历，不删除，如果抢占调度失败，会在1ms后不断重试，相当于主动检测
-                            for entry in tasks.iter() {
-                                let exec_time = entry.get_timestamp();
-                                if open_coroutine_timer::now() < exec_time {
+                            for (exec_time, entry) in tasks.iter() {
+                                if open_coroutine_timer::now() < *exec_time {
                                     break;
                                 }
                                 for node in entry.iter() {

@@ -46,7 +46,7 @@
 //! Associate `VecDeque` with `timestamps`.
 
 use std::collections::vec_deque::{Iter, IterMut};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// get the current wall clock in ns
@@ -147,11 +147,11 @@ impl<T> TimerEntry<T> {
 /// A queue for managing multiple `TimerEntry`.
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq)]
-pub struct TimerList<T>(VecDeque<TimerEntry<T>>);
+pub struct TimerList<T>(BTreeMap<u64, TimerEntry<T>>);
 
 impl<T> Default for TimerList<T> {
     fn default() -> Self {
-        TimerList(VecDeque::new())
+        TimerList(BTreeMap::new())
     }
 }
 
@@ -165,34 +165,37 @@ impl<T> TimerList<T> {
     /// Inserts an element at `timestamp` within the deque, shifting all elements
     /// with indices greater than or equal to `timestamp` towards the back.
     pub fn insert(&mut self, timestamp: u64, t: T) {
-        let index = self
-            .0
-            .binary_search_by(|x| x.timestamp.cmp(&timestamp))
-            .unwrap_or_else(|x| x);
-        if let Some(entry) = self.0.get_mut(index) {
+        if let Some(entry) = self.0.get_mut(&timestamp) {
             entry.push_back(t);
-        } else {
-            let mut entry = TimerEntry::new(timestamp);
-            entry.push_back(t);
-            self.0.insert(index, entry);
+            return;
+        }
+        let mut entry = TimerEntry::new(timestamp);
+        entry.push_back(t);
+        if let Some(mut entry) = self.0.insert(timestamp, entry) {
+            // concurrent, just retry
+            while !entry.is_empty() {
+                if let Some(e) = entry.pop_front() {
+                    self.insert(timestamp, e);
+                }
+            }
         }
     }
 
     /// Provides a reference to the front element, or `None` if the deque is empty.
     #[must_use]
-    pub fn front(&self) -> Option<&TimerEntry<T>> {
-        self.0.front()
+    pub fn front(&self) -> Option<(&u64, &TimerEntry<T>)> {
+        self.0.first_key_value()
     }
 
     /// Removes the first element and returns it, or `None` if the deque is empty.
-    pub fn pop_front(&mut self) -> Option<TimerEntry<T>> {
-        self.0.pop_front()
+    pub fn pop_front(&mut self) -> Option<(u64, TimerEntry<T>)> {
+        self.0.pop_first()
     }
 
     /// Returns `true` if the deque is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        for entry in &self.0 {
+        for entry in self.0.values() {
             if !entry.is_empty() {
                 return false;
             }
@@ -202,11 +205,7 @@ impl<T> TimerList<T> {
 
     /// Provides a mutable reference to the entry at the given `timestamp`.
     pub fn get_entry(&mut self, timestamp: &u64) -> Option<&mut TimerEntry<T>> {
-        let index = self
-            .0
-            .binary_search_by(|x| x.timestamp.cmp(timestamp))
-            .unwrap_or_else(|x| x);
-        self.0.get_mut(index)
+        self.0.get_mut(timestamp)
     }
 
     /// Removes and returns the element at `timestamp` from the deque.
@@ -214,21 +213,16 @@ impl<T> TimerList<T> {
     /// room, and all the affected elements will be moved to new positions.
     /// Returns `None` if `timestamp` is out of bounds.
     pub fn remove(&mut self, timestamp: &u64) -> Option<TimerEntry<T>> {
-        let index = self
-            .0
-            .binary_search_by(|x| x.timestamp.cmp(timestamp))
-            .unwrap_or_else(|x| x);
-        self.0.remove(index)
+        self.0.remove(timestamp)
     }
 
     /// Returns a front-to-back iterator that returns mutable references.
-    pub fn iter_mut(&mut self) -> IterMut<'_, TimerEntry<T>> {
+    pub fn iter_mut(&mut self) -> std::collections::btree_map::IterMut<'_, u64, TimerEntry<T>> {
         self.0.iter_mut()
     }
 
     /// Returns a front-to-back iterator.
-    #[must_use]
-    pub fn iter(&self) -> Iter<'_, TimerEntry<T>> {
+    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, u64, TimerEntry<T>> {
         self.0.iter()
     }
 }
@@ -249,7 +243,7 @@ mod tests {
         list.insert(1, String::from("data is typed"));
         assert_eq!(list.len(), 1);
 
-        let mut entry = list.pop_front().unwrap();
+        let mut entry = list.pop_front().unwrap().1;
         assert_eq!(entry.len(), 1);
         let string = entry.pop_front().unwrap();
         assert_eq!(string, String::from("data is typed"));
