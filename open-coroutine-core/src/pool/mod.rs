@@ -11,6 +11,7 @@ use std::ffi::c_void;
 use std::fmt::Debug;
 use std::panic::UnwindSafe;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /// Task abstraction and impl.
@@ -64,7 +65,7 @@ pub trait CoroutinePool<'p>: Debug + Default + Named + Current<'p> {
     /// Returns in `ns` units.
     fn get_keep_alive_time(&self) -> u64;
 
-    /// Submit new task to this pool.
+    /// Submit a new task to this pool.
     ///
     /// Allow multiple threads to concurrently submit task to the pool,
     /// but only allow one thread to execute scheduling.
@@ -134,7 +135,35 @@ pub trait CoroutinePool<'p>: Debug + Default + Named + Current<'p> {
     fn try_timeout_schedule(&mut self, timeout_time: u64) -> std::io::Result<u64>;
 
     /// Attempt to obtain task results with the given `task_name`.
-    fn get_result(&self, task_name: &str) -> Option<(String, Result<Option<usize>, &str>)>;
+    fn try_get_result(&self, task_name: &str) -> Option<(String, Result<Option<usize>, &str>)>;
+
+    /// Use the given 'task_name' to obtain task results, and if no results are found,
+    /// block the current thread for `wait_timeout`.
+    ///
+    /// # Errors
+    /// if timeout
+    #[allow(clippy::type_complexity)]
+    fn wait_result(
+        &self,
+        task_name: &str,
+        wait_timeout: Duration,
+    ) -> std::io::Result<Option<(String, Result<Option<usize>, &str>)>>;
+
+    /// Submit a new task to this pool and wait for the task to complete.
+    ///
+    /// # Errors
+    /// see `wait_result`
+    #[allow(clippy::type_complexity)]
+    fn submit_and_wait(
+        &self,
+        name: Option<String>,
+        func: impl FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 'p,
+        param: Option<usize>,
+        wait_timeout: Duration,
+    ) -> std::io::Result<Option<(String, Result<Option<usize>, &str>)>> {
+        let task_name = self.submit(name, func, param);
+        self.wait_result(task_name, wait_timeout)
+    }
 }
 
 #[allow(missing_docs, box_pointers, dead_code)]
@@ -158,6 +187,8 @@ pub struct CoroutinePoolImpl<'p> {
     blocker: Box<dyn Blocker + 'p>,
     //任务执行结果
     results: DashMap<String, Result<Option<usize>, &'p str>>,
+    //正在等待结果的
+    waits: DashMap<&'p str, Arc<(Mutex<bool>, Condvar)>>,
 }
 
 impl Named for CoroutinePoolImpl<'_> {
@@ -230,6 +261,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
             keep_alive_time: AtomicU64::new(keep_alive_time),
             blocker: Box::new(blocker),
             results: DashMap::new(),
+            waits: DashMap::new(),
         };
         pool.init();
         pool
@@ -344,9 +376,16 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                             _ = pool.idle.fetch_sub(1, Ordering::Release);
                             let (task_name, result) = task.run();
                             assert!(
-                                pool.results.insert(task_name, result).is_none(),
+                                pool.results.insert(task_name.clone(), result).is_none(),
                                 "The previous result was not retrieved in a timely manner"
                             );
+                            if let Some(arc) = pool.waits.get(&*task_name) {
+                                let (lock, cvar) = &**arc;
+                                let mut pending = lock.lock().unwrap();
+                                *pending = false;
+                                // Notify the condvar that the value has changed.
+                                cvar.notify_one();
+                            }
                         }
                     }
                 }
@@ -365,8 +404,36 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         result
     }
 
-    fn get_result(&self, task_name: &str) -> Option<(String, Result<Option<usize>, &str>)> {
+    fn try_get_result(&self, task_name: &str) -> Option<(String, Result<Option<usize>, &str>)> {
         self.results.remove(task_name)
+    }
+
+    #[allow(box_pointers)]
+    fn wait_result(
+        &self,
+        task_name: &str,
+        wait_timeout: Duration,
+    ) -> std::io::Result<Option<(String, Result<Option<usize>, &str>)>> {
+        let key = Box::leak(Box::from(task_name));
+        let arc = if let Some(arc) = self.waits.get(key) {
+            arc.clone()
+        } else {
+            let arc = Arc::new((Mutex::new(true), Condvar::new()));
+            assert!(self.waits.insert(key, arc.clone()).is_none());
+            arc
+        };
+        let (lock, cvar) = &*arc;
+        let result = cvar
+            .wait_timeout_while(lock.lock().unwrap(), wait_timeout, |&mut pending| pending)
+            .unwrap();
+        if result.1.timed_out() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "wait timeout",
+            ));
+        }
+        assert!(self.waits.remove(key).is_some());
+        Ok(self.try_get_result(key))
     }
 }
 
@@ -377,6 +444,7 @@ mod tests {
 
     #[test]
     fn test_simple() {
+        let task_name = "test_simple";
         let mut pool = CoroutinePoolImpl::new(
             crate::coroutine::DEFAULT_STACK_SIZE,
             0,
@@ -387,17 +455,21 @@ mod tests {
         {
             let const_ref = &pool;
             assert!(const_ref.is_empty());
-            _ = const_ref.submit(Some(String::from("test_panic")), |_| panic!("1"), None);
+            _ = const_ref.submit(
+                Some(String::from("test_panic")),
+                |_| panic!("message"),
+                None,
+            );
             assert!(!const_ref.is_empty());
-            let task_name = const_ref.submit(
-                Some(String::from("test")),
+            let name = const_ref.submit(
+                Some(String::from(task_name)),
                 |_| {
                     println!("2");
                     Some(2)
                 },
                 None,
             );
-            assert_eq!("test", task_name);
+            assert_eq!(task_name, name);
         }
         {
             let mut_ref = &mut pool;
@@ -405,12 +477,12 @@ mod tests {
         }
         let const_ref = &pool;
         assert_eq!(
-            Some((String::from("test_panic"), Err("1"))),
-            const_ref.get_result("test_panic")
+            Some((String::from("test_panic"), Err("message"))),
+            const_ref.try_get_result("test_panic")
         );
         assert_eq!(
-            Some((String::from("test"), Ok(Some(2)))),
-            const_ref.get_result("test")
+            Some((String::from(task_name), Ok(Some(2)))),
+            const_ref.try_get_result(task_name)
         );
     }
 
@@ -446,5 +518,45 @@ mod tests {
         pool.try_schedule()?;
         std::thread::sleep(Duration::from_millis(100));
         pool.try_schedule()
+    }
+
+    #[test]
+    fn test_wait() {
+        let task_name = "test_wait";
+        let mut pool = CoroutinePoolImpl::new(
+            crate::coroutine::DEFAULT_STACK_SIZE,
+            0,
+            1,
+            0,
+            crate::blocker::SleepBlocker {},
+        );
+        {
+            let const_ref = &pool;
+            assert!(const_ref.is_empty());
+            let name = const_ref.submit(
+                Some(String::from(task_name)),
+                |_| {
+                    println!("2");
+                    Some(2)
+                },
+                None,
+            );
+            assert_eq!(task_name, name);
+            assert_eq!(None, const_ref.try_get_result(task_name));
+            match const_ref.wait_result(task_name, Duration::from_millis(100)) {
+                Ok(_) => panic!(),
+                Err(_) => {}
+            }
+            assert_eq!(None, const_ref.try_get_result(task_name));
+        }
+        {
+            let mut_ref = &mut pool;
+            _ = mut_ref.try_schedule();
+        }
+        let const_ref = &pool;
+        match const_ref.wait_result(task_name, Duration::from_secs(100)) {
+            Ok(v) => assert_eq!(Some((String::from(task_name), Ok(Some(2)))), v),
+            Err(e) => panic!("{e}"),
+        }
     }
 }
