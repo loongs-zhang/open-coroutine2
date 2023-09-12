@@ -20,6 +20,9 @@ cd "${PROJECT_DIR}"/open-coroutine-core
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei --release
 
+"${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei --features preemptive-schedule
+"${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei --features preemptive-schedule --release
+
 # todo io_uring
 #if [ "${OS}" = "ubuntu-latest" ]; then
 #    "${CARGO}" test $CARGO_TEST_FLAGS --target "${TARGET}" --all-targets --features asm-unwind

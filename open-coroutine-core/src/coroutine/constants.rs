@@ -5,6 +5,9 @@ use std::fmt::{Debug, Display, Formatter};
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Syscall {
+    sleep,
+    usleep,
+    nanosleep,
     poll,
     select,
     #[cfg(target_os = "linux")]
@@ -51,6 +54,9 @@ pub enum SyscallState {
     Suspend(u64),
     ///执行其他系统调用
     Calling(Syscall),
+    ///到指定时间戳后回来，期间系统调用可能没执行完毕
+    ///对于sleep系列，这个状态表示正常完成
+    Timeout,
     ///系统调用完成
     Finished,
 }

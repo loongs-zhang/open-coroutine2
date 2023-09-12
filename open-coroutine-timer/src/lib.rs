@@ -159,6 +159,16 @@ impl<T> TimerList<T> {
     /// Returns the number of elements in the deque.
     #[must_use]
     pub fn len(&self) -> usize {
+        let mut total = 0;
+        for entry in self.0.values() {
+            total += entry.len();
+        }
+        total
+    }
+
+    /// Returns the number of entries in the deque.
+    #[must_use]
+    pub fn entry_len(&self) -> usize {
         self.0.len()
     }
 
@@ -239,9 +249,9 @@ mod tests {
     #[test]
     fn timer_list() {
         let mut list = TimerList::default();
-        assert_eq!(list.len(), 0);
+        assert_eq!(list.entry_len(), 0);
         list.insert(1, String::from("data is typed"));
-        assert_eq!(list.len(), 1);
+        assert_eq!(list.entry_len(), 1);
 
         let mut entry = list.pop_front().unwrap().1;
         assert_eq!(entry.len(), 1);

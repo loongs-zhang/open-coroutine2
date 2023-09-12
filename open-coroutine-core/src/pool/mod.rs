@@ -137,7 +137,7 @@ pub trait CoroutinePool<'p>: Debug + Default + Named + Current<'p> {
     /// Attempt to obtain task results with the given `task_name`.
     fn try_get_result(&self, task_name: &str) -> Option<(String, Result<Option<usize>, &str>)>;
 
-    /// Use the given 'task_name' to obtain task results, and if no results are found,
+    /// Use the given `task_name` to obtain task results, and if no results are found,
     /// block the current thread for `wait_timeout`.
     ///
     /// # Errors

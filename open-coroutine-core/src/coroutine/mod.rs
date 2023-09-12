@@ -152,6 +152,12 @@ pub trait StateMachine<'c>: Coroutine<'c> {
         syscall_state: SyscallState,
     ) -> std::io::Result<()>;
 
+    /// syscall -> running
+    ///
+    /// # Errors
+    /// if change state fails.
+    fn syscall_resume(&self) -> std::io::Result<()>;
+
     /// running -> complete
     ///
     /// # Errors

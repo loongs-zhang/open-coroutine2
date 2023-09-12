@@ -1,8 +1,8 @@
 use crate::blocker::Blocker;
 use crate::coroutine::constants::CoroutineState;
-use crate::coroutine::suspender::{SimpleSuspender, SuspenderImpl};
+use crate::coroutine::suspender::SimpleSuspender;
 use crate::coroutine::{Coroutine, Current, StateMachine};
-use crate::scheduler::{Listener, SchedulableCoroutine};
+use crate::scheduler::{Listener, SchedulableCoroutine, SchedulableSuspender};
 use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use open_coroutine_timer::TimerList;
@@ -75,7 +75,7 @@ extern "C" fn sigurg_handler(_: libc::c_int) {
         set.remove(Signal::SIGURG);
         set.thread_set_mask()
             .expect("Failed to remove SIGURG signal mask!");
-        if let Some(suspender) = SuspenderImpl::<(), ()>::current() {
+        if let Some(suspender) = SchedulableSuspender::current() {
             suspender.suspend();
         }
     }
@@ -259,10 +259,10 @@ mod tests {
         static TEST_FLAG2: AtomicBool = AtomicBool::new(true);
         let pair = Arc::new((Mutex::new(true), Condvar::new()));
         let pair2 = Arc::clone(&pair);
-        let handler: JoinHandle<std::io::Result<()>> = std::thread::Builder::new()
+        let _: JoinHandle<std::io::Result<()>> = std::thread::Builder::new()
             .name("test_preemptive_schedule".to_string())
             .spawn(move || {
-                let scheduler = Box::leak(Box::new(SchedulerImpl::default()));
+                let mut scheduler = SchedulerImpl::default();
                 _ = scheduler.submit(
                     |_, _| {
                         while TEST_FLAG1.load(Ordering::Acquire) {
@@ -304,7 +304,6 @@ mod tests {
         if result.1.timed_out() {
             Err(Error::new(ErrorKind::Other, "preemptive schedule failed"))
         } else {
-            handler.join().unwrap()?;
             assert!(
                 !TEST_FLAG1.load(Ordering::Acquire),
                 "preemptive schedule failed"

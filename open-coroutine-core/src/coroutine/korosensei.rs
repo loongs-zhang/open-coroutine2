@@ -243,7 +243,7 @@ where
     fn ready(&self) -> std::io::Result<()> {
         let current = self.state();
         match current {
-            CoroutineState::Created | CoroutineState::SystemCall(_, _, SyscallState::Finished) => {
+            CoroutineState::Created => {
                 self.state.set(CoroutineState::Ready);
                 return Ok(());
             }
@@ -278,6 +278,7 @@ where
                     return Ok(());
                 }
             }
+            CoroutineState::SystemCall(_, _, _) => return Ok(()),
             _ => {}
         }
         Err(Error::new(
@@ -334,6 +335,24 @@ where
                 "{} unexpected {current}->{}",
                 self.name,
                 CoroutineState::<Yield, Return>::SystemCall(val, syscall, syscall_state)
+            ),
+        ))
+    }
+
+    fn syscall_resume(&self) -> std::io::Result<()> {
+        let current = self.state();
+        if let CoroutineState::SystemCall(_, _, SyscallState::Finished | SyscallState::Timeout) =
+            current
+        {
+            self.state.set(CoroutineState::Running);
+            return Ok(());
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "{} unexpected {current}->{}",
+                self.name,
+                CoroutineState::<Yield, Return>::Running
             ),
         ))
     }
