@@ -76,8 +76,10 @@ impl<'t> Task<'t> for TaskImpl<'t> {
         let paran = self.get_param();
         (
             self.name,
-            std::panic::catch_unwind(|| (self.func)(paran))
-                .map_err(|e| *e.downcast_ref::<&'static str>().unwrap()),
+            std::panic::catch_unwind(|| (self.func)(paran)).map_err(|e| {
+                *e.downcast_ref::<&'static str>()
+                    .unwrap_or(&"task failed without message")
+            }),
         )
     }
 }

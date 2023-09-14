@@ -19,7 +19,7 @@ where
     Return: Copy + Eq + PartialEq + UnwindSafe,
 {
     name: String,
-    inner: ScopedCoroutine<'c, Param, Yield, std::thread::Result<Return>, DefaultStack>,
+    pub(crate) inner: ScopedCoroutine<'c, Param, Yield, std::thread::Result<Return>, DefaultStack>,
     state: Cell<CoroutineState<Yield, Return>>,
     local: CoroutineLocal<'c>,
 }
@@ -214,7 +214,9 @@ where
                     CoroutineState::Complete(returns)
                 } else {
                     let error = result.unwrap_err();
-                    let message = error.downcast_ref::<&'static str>().unwrap();
+                    let message = error
+                        .downcast_ref::<&'static str>()
+                        .unwrap_or(&"coroutine failed without message");
                     self.error(message)?;
                     CoroutineState::Error(message)
                 }

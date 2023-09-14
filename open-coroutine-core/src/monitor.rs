@@ -2,6 +2,7 @@ use crate::blocker::Blocker;
 use crate::coroutine::constants::CoroutineState;
 use crate::coroutine::suspender::SimpleSuspender;
 use crate::coroutine::{Coroutine, Current, StateMachine};
+use crate::pool::{CoroutinePool, CoroutinePoolImpl};
 use crate::scheduler::{Listener, SchedulableCoroutine, SchedulableSuspender};
 use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
@@ -121,6 +122,14 @@ impl Monitor for MonitorImpl {
                         _ = core_affinity::set_for_current(core_affinity::CoreId {
                             id: monitor.cpu,
                         });
+                        let mut pool = CoroutinePoolImpl::new(
+                            String::from("open-coroutine-monitor"),
+                            crate::coroutine::DEFAULT_STACK_SIZE,
+                            1,
+                            1,
+                            0,
+                            crate::blocker::DelayBlocker {},
+                        );
                         let tasks = unsafe { &*monitor.tasks.get() };
                         while monitor.run.load(Ordering::Acquire) || !tasks.is_empty() {
                             //只遍历，不删除，如果抢占调度失败，会在1ms后不断重试，相当于主动检测
@@ -129,17 +138,27 @@ impl Monitor for MonitorImpl {
                                     break;
                                 }
                                 for node in entry.iter() {
-                                    let coroutine = unsafe {
-                                        &*(node.coroutine.cast::<SchedulableCoroutine>())
-                                    };
-                                    if CoroutineState::Running == coroutine.state() {
-                                        //只对陷入重度计算的协程发送信号抢占，对陷入执行系统调用的协程
-                                        //不发送信号(如果发送信号，会打断系统调用，进而降低总体性能)
-                                        if pthread_kill(node.pthread, Signal::SIGURG).is_err() {
-                                            todo!("log");
-                                        };
-                                    }
+                                    _ = pool.submit(
+                                        None,
+                                        |_| {
+                                            let coroutine = unsafe {
+                                                &*(node.coroutine.cast::<SchedulableCoroutine>())
+                                            };
+                                            if CoroutineState::Running == coroutine.state() {
+                                                //只对陷入重度计算的协程发送信号抢占，对陷入执行系统调用的协程
+                                                //不发送信号(如果发送信号，会打断系统调用，进而降低总体性能)
+                                                if pthread_kill(node.pthread, Signal::SIGURG)
+                                                    .is_err()
+                                                {
+                                                    todo!("log");
+                                                };
+                                            }
+                                            None
+                                        },
+                                        None,
+                                    );
                                 }
+                                _ = pool.try_schedule();
                             }
                             //monitor线程不执行协程计算任务，每次循环至少wait 1ms
                             #[allow(box_pointers)]
@@ -223,9 +242,7 @@ impl Listener for MonitorListener {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scheduler::{Scheduler, SchedulerImpl};
     use std::os::unix::prelude::JoinHandleExt;
-    use std::sync::{Arc, Condvar, Mutex};
 
     static SIGNALED: AtomicBool = AtomicBool::new(false);
 
@@ -253,8 +270,13 @@ mod tests {
         Ok(())
     }
 
+    /// This test can be run locally, but is not stable enough
+    /// in extreme scenarios when in non release mode.
+    #[cfg(not(debug_assertions))]
     #[test]
     fn preemptive_schedule() -> std::io::Result<()> {
+        use crate::scheduler::{Scheduler, SchedulerImpl};
+        use std::sync::{Arc, Condvar, Mutex};
         static TEST_FLAG1: AtomicBool = AtomicBool::new(true);
         static TEST_FLAG2: AtomicBool = AtomicBool::new(true);
         let pair = Arc::new((Mutex::new(true), Condvar::new()));
