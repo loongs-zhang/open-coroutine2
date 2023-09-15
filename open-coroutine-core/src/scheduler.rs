@@ -13,174 +13,226 @@ use std::panic::UnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-cfg_if::cfg_if! {
-    if #[cfg(all(unix, feature = "korosensei"))] {
-        use corosensei::trap::TrapHandlerRegs;
-        use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
-        use std::sync::atomic::AtomicBool;
-    }
-}
-
 /// A type for Scheduler.
 pub type SchedulableCoroutine<'s> = CoroutineImpl<'s, (), (), ()>;
 
 /// A type for Scheduler.
 pub type SchedulableSuspender<'s> = SuspenderImpl<'s, (), ()>;
 
-#[cfg(all(unix, feature = "korosensei"))]
-#[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
-pub(crate) extern "C" fn trap_handler(
-    _signum: libc::c_int,
-    _siginfo: *mut libc::siginfo_t,
-    context: *mut c_void,
-) {
-    unsafe {
-        //do not disable clippy::transmute_ptr_to_ref
-        #[allow(clippy::transmute_ptr_to_ref)]
-        let context: &mut libc::ucontext_t = std::mem::transmute(context);
-        cfg_if::cfg_if! {
-            if #[cfg(all(
-                any(target_os = "linux", target_os = "android"),
-                target_arch = "x86_64",
-            ))] {
-                let sp = context.uc_mcontext.gregs[libc::REG_RSP as usize] as usize;
-            } else if #[cfg(all(
-                any(target_os = "linux", target_os = "android"),
-                target_arch = "x86",
-            ))] {
-                let sp = context.uc_mcontext.gregs[libc::REG_ESP as usize] as usize;
-            } else if #[cfg(all(target_vendor = "apple", target_arch = "x86_64"))] {
-                let sp = (*context.uc_mcontext).__ss.__rsp as usize;
-            } else if #[cfg(all(
-                    any(target_os = "linux", target_os = "android"),
-                    target_arch = "aarch64",
-                ))] {
-                let sp = context.uc_mcontext.sp as usize;
-            } else if #[cfg(all(
-                any(target_os = "linux", target_os = "android"),
-                target_arch = "arm",
-            ))] {
-                let sp = context.uc_mcontext.arm_sp as usize;
-            } else if #[cfg(all(
-                any(target_os = "linux", target_os = "android"),
-                any(target_arch = "riscv64", target_arch = "riscv32"),
-            ))] {
-                let sp = context.uc_mcontext.__gregs[libc::REG_SP] as usize;
-            } else if #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))] {
-                let sp = (*context.uc_mcontext).__ss.__sp as usize;
-            } else if #[cfg(all(target_os = "linux", target_arch = "loongarch64"))] {
-                let sp = context.uc_mcontext.__gregs[3] as usize;
-            } else {
-                compile_error!("Unsupported platform");
-            }
-        }
-        #[allow(box_pointers)]
-        if let Some(co) = SchedulableCoroutine::current() {
-            let handler = co.inner.trap_handler();
-            assert!(handler.stack_ptr_in_bounds(sp));
-            let regs = handler.setup_trap_handler(|| Err(Box::new("invalid memory reference")));
-            cfg_if::cfg_if! {
-                if #[cfg(all(
+cfg_if::cfg_if! {
+    if #[cfg(all(unix, feature = "korosensei"))] {
+        use corosensei::trap::TrapHandlerRegs;
+        use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
+
+        #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+        pub(crate) extern "C" fn trap_handler(
+            _signum: libc::c_int,
+            _siginfo: *mut libc::siginfo_t,
+            context: *mut c_void,
+        ) {
+            unsafe {
+                //do not disable clippy::transmute_ptr_to_ref
+                #[allow(clippy::transmute_ptr_to_ref)]
+                let context: &mut libc::ucontext_t = std::mem::transmute(context);
+                cfg_if::cfg_if! {
+                    if #[cfg(all(
                         any(target_os = "linux", target_os = "android"),
                         target_arch = "x86_64",
                     ))] {
-                    let TrapHandlerRegs { rip, rsp, rbp, rdi, rsi } = regs;
-                    context.uc_mcontext.gregs[libc::REG_RIP as usize] = rip as i64;
-                    context.uc_mcontext.gregs[libc::REG_RSP as usize] = rsp as i64;
-                    context.uc_mcontext.gregs[libc::REG_RBP as usize] = rbp as i64;
-                    context.uc_mcontext.gregs[libc::REG_RDI as usize] = rdi as i64;
-                    context.uc_mcontext.gregs[libc::REG_RSI as usize] = rsi as i64;
-                } else if #[cfg(all(
-                    any(target_os = "linux", target_os = "android"),
-                    target_arch = "x86",
-                ))] {
-                    let TrapHandlerRegs { eip, esp, ebp, ecx, edx } = regs;
-                    context.uc_mcontext.gregs[libc::REG_EIP as usize] = eip as i32;
-                    context.uc_mcontext.gregs[libc::REG_ESP as usize] = esp as i32;
-                    context.uc_mcontext.gregs[libc::REG_EBP as usize] = ebp as i32;
-                    context.uc_mcontext.gregs[libc::REG_ECX as usize] = ecx as i32;
-                    context.uc_mcontext.gregs[libc::REG_EDX as usize] = edx as i32;
-                } else if #[cfg(all(target_vendor = "apple", target_arch = "x86_64"))] {
-                    let TrapHandlerRegs { rip, rsp, rbp, rdi, rsi } = regs;
-                    (*context.uc_mcontext).__ss.__rip = rip;
-                    (*context.uc_mcontext).__ss.__rsp = rsp;
-                    (*context.uc_mcontext).__ss.__rbp = rbp;
-                    (*context.uc_mcontext).__ss.__rdi = rdi;
-                    (*context.uc_mcontext).__ss.__rsi = rsi;
-                } else if #[cfg(all(
+                        let sp = context.uc_mcontext.gregs[libc::REG_RSP as usize] as usize;
+                    } else if #[cfg(all(
                         any(target_os = "linux", target_os = "android"),
-                        target_arch = "aarch64",
+                        target_arch = "x86",
                     ))] {
-                    let TrapHandlerRegs { pc, sp, x0, x1, x29, lr } = regs;
-                    context.uc_mcontext.pc = pc;
-                    context.uc_mcontext.sp = sp;
-                    context.uc_mcontext.regs[0] = x0;
-                    context.uc_mcontext.regs[1] = x1;
-                    context.uc_mcontext.regs[29] = x29;
-                    context.uc_mcontext.regs[30] = lr;
-                } else if #[cfg(all(
+                        let sp = context.uc_mcontext.gregs[libc::REG_ESP as usize] as usize;
+                    } else if #[cfg(all(target_vendor = "apple", target_arch = "x86_64"))] {
+                        let sp = (*context.uc_mcontext).__ss.__rsp as usize;
+                    } else if #[cfg(all(
+                            any(target_os = "linux", target_os = "android"),
+                            target_arch = "aarch64",
+                        ))] {
+                        let sp = context.uc_mcontext.sp as usize;
+                    } else if #[cfg(all(
                         any(target_os = "linux", target_os = "android"),
                         target_arch = "arm",
                     ))] {
-                    let TrapHandlerRegs {
-                        pc,
-                        r0,
-                        r1,
-                        r7,
-                        r11,
-                        r13,
-                        r14,
-                        cpsr_thumb,
-                        cpsr_endian,
-                    } = regs;
-                    context.uc_mcontext.arm_pc = pc;
-                    context.uc_mcontext.arm_r0 = r0;
-                    context.uc_mcontext.arm_r1 = r1;
-                    context.uc_mcontext.arm_r7 = r7;
-                    context.uc_mcontext.arm_fp = r11;
-                    context.uc_mcontext.arm_sp = r13;
-                    context.uc_mcontext.arm_lr = r14;
-                    if cpsr_thumb {
-                        context.uc_mcontext.arm_cpsr |= 0x20;
+                        let sp = context.uc_mcontext.arm_sp as usize;
+                    } else if #[cfg(all(
+                        any(target_os = "linux", target_os = "android"),
+                        any(target_arch = "riscv64", target_arch = "riscv32"),
+                    ))] {
+                        let sp = context.uc_mcontext.__gregs[libc::REG_SP] as usize;
+                    } else if #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))] {
+                        let sp = (*context.uc_mcontext).__ss.__sp as usize;
+                    } else if #[cfg(all(target_os = "linux", target_arch = "loongarch64"))] {
+                        let sp = context.uc_mcontext.__gregs[3] as usize;
                     } else {
-                        context.uc_mcontext.arm_cpsr &= !0x20;
+                        compile_error!("Unsupported platform");
                     }
-                    if cpsr_endian {
-                        context.uc_mcontext.arm_cpsr |= 0x200;
-                    } else {
-                        context.uc_mcontext.arm_cpsr &= !0x200;
+                }
+                #[allow(box_pointers)]
+                if let Some(co) = SchedulableCoroutine::current() {
+                    let handler = co.inner.trap_handler();
+                    assert!(handler.stack_ptr_in_bounds(sp));
+                    let regs = handler.setup_trap_handler(|| Err(Box::new("invalid memory reference")));
+                    cfg_if::cfg_if! {
+                        if #[cfg(all(
+                                any(target_os = "linux", target_os = "android"),
+                                target_arch = "x86_64",
+                            ))] {
+                            let TrapHandlerRegs { rip, rsp, rbp, rdi, rsi } = regs;
+                            context.uc_mcontext.gregs[libc::REG_RIP as usize] = rip as i64;
+                            context.uc_mcontext.gregs[libc::REG_RSP as usize] = rsp as i64;
+                            context.uc_mcontext.gregs[libc::REG_RBP as usize] = rbp as i64;
+                            context.uc_mcontext.gregs[libc::REG_RDI as usize] = rdi as i64;
+                            context.uc_mcontext.gregs[libc::REG_RSI as usize] = rsi as i64;
+                        } else if #[cfg(all(
+                            any(target_os = "linux", target_os = "android"),
+                            target_arch = "x86",
+                        ))] {
+                            let TrapHandlerRegs { eip, esp, ebp, ecx, edx } = regs;
+                            context.uc_mcontext.gregs[libc::REG_EIP as usize] = eip as i32;
+                            context.uc_mcontext.gregs[libc::REG_ESP as usize] = esp as i32;
+                            context.uc_mcontext.gregs[libc::REG_EBP as usize] = ebp as i32;
+                            context.uc_mcontext.gregs[libc::REG_ECX as usize] = ecx as i32;
+                            context.uc_mcontext.gregs[libc::REG_EDX as usize] = edx as i32;
+                        } else if #[cfg(all(target_vendor = "apple", target_arch = "x86_64"))] {
+                            let TrapHandlerRegs { rip, rsp, rbp, rdi, rsi } = regs;
+                            (*context.uc_mcontext).__ss.__rip = rip;
+                            (*context.uc_mcontext).__ss.__rsp = rsp;
+                            (*context.uc_mcontext).__ss.__rbp = rbp;
+                            (*context.uc_mcontext).__ss.__rdi = rdi;
+                            (*context.uc_mcontext).__ss.__rsi = rsi;
+                        } else if #[cfg(all(
+                                any(target_os = "linux", target_os = "android"),
+                                target_arch = "aarch64",
+                            ))] {
+                            let TrapHandlerRegs { pc, sp, x0, x1, x29, lr } = regs;
+                            context.uc_mcontext.pc = pc;
+                            context.uc_mcontext.sp = sp;
+                            context.uc_mcontext.regs[0] = x0;
+                            context.uc_mcontext.regs[1] = x1;
+                            context.uc_mcontext.regs[29] = x29;
+                            context.uc_mcontext.regs[30] = lr;
+                        } else if #[cfg(all(
+                                any(target_os = "linux", target_os = "android"),
+                                target_arch = "arm",
+                            ))] {
+                            let TrapHandlerRegs {
+                                pc,
+                                r0,
+                                r1,
+                                r7,
+                                r11,
+                                r13,
+                                r14,
+                                cpsr_thumb,
+                                cpsr_endian,
+                            } = regs;
+                            context.uc_mcontext.arm_pc = pc;
+                            context.uc_mcontext.arm_r0 = r0;
+                            context.uc_mcontext.arm_r1 = r1;
+                            context.uc_mcontext.arm_r7 = r7;
+                            context.uc_mcontext.arm_fp = r11;
+                            context.uc_mcontext.arm_sp = r13;
+                            context.uc_mcontext.arm_lr = r14;
+                            if cpsr_thumb {
+                                context.uc_mcontext.arm_cpsr |= 0x20;
+                            } else {
+                                context.uc_mcontext.arm_cpsr &= !0x20;
+                            }
+                            if cpsr_endian {
+                                context.uc_mcontext.arm_cpsr |= 0x200;
+                            } else {
+                                context.uc_mcontext.arm_cpsr &= !0x200;
+                            }
+                        } else if #[cfg(all(
+                            any(target_os = "linux", target_os = "android"),
+                            any(target_arch = "riscv64", target_arch = "riscv32"),
+                        ))] {
+                            let TrapHandlerRegs { pc, ra, sp, a0, a1, s0 } = regs;
+                            context.uc_mcontext.__gregs[libc::REG_PC] = pc as libc::c_ulong;
+                            context.uc_mcontext.__gregs[libc::REG_RA] = ra as libc::c_ulong;
+                            context.uc_mcontext.__gregs[libc::REG_SP] = sp as libc::c_ulong;
+                            context.uc_mcontext.__gregs[libc::REG_A0] = a0 as libc::c_ulong;
+                            context.uc_mcontext.__gregs[libc::REG_A0 + 1] = a1 as libc::c_ulong;
+                            context.uc_mcontext.__gregs[libc::REG_S0] = s0 as libc::c_ulong;
+                        } else if #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))] {
+                            let TrapHandlerRegs { pc, sp, x0, x1, x29, lr } = regs;
+                            (*context.uc_mcontext).__ss.__pc = pc;
+                            (*context.uc_mcontext).__ss.__sp = sp;
+                            (*context.uc_mcontext).__ss.__x[0] = x0;
+                            (*context.uc_mcontext).__ss.__x[1] = x1;
+                            (*context.uc_mcontext).__ss.__fp = x29;
+                            (*context.uc_mcontext).__ss.__lr = lr;
+                        } else if #[cfg(all(target_os = "linux", target_arch = "loongarch64"))] {
+                            let TrapHandlerRegs { pc, sp, a0, a1, fp, ra } = regs;
+                            context.uc_mcontext.__pc = pc;
+                            context.uc_mcontext.__gregs[1] = ra;
+                            context.uc_mcontext.__gregs[3] = sp;
+                            context.uc_mcontext.__gregs[4] = a0;
+                            context.uc_mcontext.__gregs[5] = a1;
+                            context.uc_mcontext.__gregs[22] = fp;
+                        } else {
+                            compile_error!("Unsupported platform");
+                        }
                     }
-                } else if #[cfg(all(
-                    any(target_os = "linux", target_os = "android"),
-                    any(target_arch = "riscv64", target_arch = "riscv32"),
-                ))] {
-                    let TrapHandlerRegs { pc, ra, sp, a0, a1, s0 } = regs;
-                    context.uc_mcontext.__gregs[libc::REG_PC] = pc as libc::c_ulong;
-                    context.uc_mcontext.__gregs[libc::REG_RA] = ra as libc::c_ulong;
-                    context.uc_mcontext.__gregs[libc::REG_SP] = sp as libc::c_ulong;
-                    context.uc_mcontext.__gregs[libc::REG_A0] = a0 as libc::c_ulong;
-                    context.uc_mcontext.__gregs[libc::REG_A0 + 1] = a1 as libc::c_ulong;
-                    context.uc_mcontext.__gregs[libc::REG_S0] = s0 as libc::c_ulong;
-                } else if #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))] {
-                    let TrapHandlerRegs { pc, sp, x0, x1, x29, lr } = regs;
-                    (*context.uc_mcontext).__ss.__pc = pc;
-                    (*context.uc_mcontext).__ss.__sp = sp;
-                    (*context.uc_mcontext).__ss.__x[0] = x0;
-                    (*context.uc_mcontext).__ss.__x[1] = x1;
-                    (*context.uc_mcontext).__ss.__fp = x29;
-                    (*context.uc_mcontext).__ss.__lr = lr;
-                } else if #[cfg(all(target_os = "linux", target_arch = "loongarch64"))] {
-                    let TrapHandlerRegs { pc, sp, a0, a1, fp, ra } = regs;
-                    context.uc_mcontext.__pc = pc;
-                    context.uc_mcontext.__gregs[1] = ra;
-                    context.uc_mcontext.__gregs[3] = sp;
-                    context.uc_mcontext.__gregs[4] = a0;
-                    context.uc_mcontext.__gregs[5] = a1;
-                    context.uc_mcontext.__gregs[22] = fp;
-                } else {
-                    compile_error!("Unsupported platform");
                 }
             }
+        }
+    } else if #[cfg(all(windows, feature = "korosensei"))] {
+        use corosensei::trap::TrapHandlerRegs;
+        use windows_sys::Win32::Foundation::{EXCEPTION_ACCESS_VIOLATION, EXCEPTION_STACK_OVERFLOW};
+        use windows_sys::Win32::System::Diagnostics::Debug::{AddVectoredExceptionHandler, EXCEPTION_POINTERS};
+
+        pub(crate) unsafe extern "system" fn trap_handler(exception_info: *mut EXCEPTION_POINTERS) -> i32 {
+            match (*(*exception_info).ExceptionRecord).ExceptionCode {
+                EXCEPTION_ACCESS_VIOLATION | EXCEPTION_STACK_OVERFLOW => {}
+                _ => return 0, // EXCEPTION_CONTINUE_SEARCH
+            }
+
+            #[allow(box_pointers)]
+            if let Some(co) = SchedulableCoroutine::current() {
+                cfg_if::cfg_if! {
+                    if #[cfg(target_arch = "x86_64")] {
+                        let sp = (*(*exception_info).ContextRecord).Rsp as usize;
+                    } else if #[cfg(target_arch = "x86")] {
+                        let sp = (*(*exception_info).ContextRecord).Esp as usize;
+                    } else {
+                        compile_error!("Unsupported platform");
+                    }
+                }
+
+                let handler = co.inner.trap_handler();
+                if !handler.stack_ptr_in_bounds(sp) {
+                    // EXCEPTION_CONTINUE_SEARCH
+                    return 0;
+                }
+                let regs = handler.setup_trap_handler(|| Err(Box::new("invalid memory reference")));
+
+                cfg_if::cfg_if! {
+                    if #[cfg(target_arch = "x86_64")] {
+                        let TrapHandlerRegs { rip, rsp, rbp, rdi, rsi } = regs;
+                        (*(*exception_info).ContextRecord).Rip = rip;
+                        (*(*exception_info).ContextRecord).Rsp = rsp;
+                        (*(*exception_info).ContextRecord).Rbp = rbp;
+                        (*(*exception_info).ContextRecord).Rdi = rdi;
+                        (*(*exception_info).ContextRecord).Rsi = rsi;
+                    } else if #[cfg(target_arch = "x86")] {
+                        let TrapHandlerRegs { eip, esp, ebp, ecx, edx } = regs;
+                        (*(*exception_info).ContextRecord).Eip = eip;
+                        (*(*exception_info).ContextRecord).Esp = esp;
+                        (*(*exception_info).ContextRecord).Ebp = ebp;
+                        (*(*exception_info).ContextRecord).Ecx = ecx;
+                        (*(*exception_info).ContextRecord).Edx = edx;
+                    } else {
+                        compile_error!("Unsupported platform");
+                    }
+                }
+            }
+            // EXCEPTION_CONTINUE_EXECUTION is -1. Not to be confused with
+            // ExceptionContinueExecution which has a value of 0.
+            -1
         }
     }
 }
@@ -189,25 +241,40 @@ pub(crate) extern "C" fn trap_handler(
 pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     /// handle SIGBUS and SIGSEGV
     fn setup_trap_handler() {
-        #[cfg(all(unix, feature = "korosensei"))]
+        #[cfg(feature = "korosensei")]
         {
+            use std::sync::atomic::AtomicBool;
             static TRAP_HANDLER_INITED: AtomicBool = AtomicBool::new(false);
             if TRAP_HANDLER_INITED
                 .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
             {
-                // install SIGSEGV & SIGBUS signal handler
-                let mut set = SigSet::empty();
-                set.add(Signal::SIGBUS);
-                set.add(Signal::SIGSEGV);
-                let sa = SigAction::new(
-                    SigHandler::SigAction(trap_handler),
-                    SaFlags::SA_ONSTACK,
-                    set,
-                );
+                #[cfg(unix)]
+                {
+                    // install SIGSEGV & SIGBUS signal handler
+                    let mut set = SigSet::empty();
+                    set.add(Signal::SIGBUS);
+                    set.add(Signal::SIGSEGV);
+                    let sa = SigAction::new(
+                        SigHandler::SigAction(trap_handler),
+                        SaFlags::SA_ONSTACK,
+                        set,
+                    );
+                    unsafe {
+                        _ = sigaction(Signal::SIGBUS, &sa)
+                            .expect("install SIGBUS handler failed !");
+                        _ = sigaction(Signal::SIGSEGV, &sa)
+                            .expect("install SIGSEGV handler failed !");
+                    }
+                }
+                #[cfg(windows)]
                 unsafe {
-                    _ = sigaction(Signal::SIGBUS, &sa).expect("install SIGBUS handler failed !");
-                    _ = sigaction(Signal::SIGSEGV, &sa).expect("install SIGSEGV handler failed !");
+                    if AddVectoredExceptionHandler(1, Some(trap_handler)).is_null() {
+                        panic!(
+                            "failed to add exception handler: {}",
+                            Error::last_os_error()
+                        );
+                    }
                 }
             }
         }
@@ -685,6 +752,20 @@ mod tests {
     }
 
     #[test]
+    fn test_current() -> std::io::Result<()> {
+        let mut scheduler = SchedulerImpl::default();
+        scheduler.submit(
+            |_, _| {
+                assert!(SchedulableCoroutine::current().is_some());
+                assert!(SchedulableSuspender::current().is_some());
+                assert!(SchedulerImpl::current().is_some());
+            },
+            None,
+        )?;
+        scheduler.try_schedule()
+    }
+
+    #[test]
     fn test_backtrace() -> std::io::Result<()> {
         let mut scheduler = SchedulerImpl::default();
         scheduler.submit(|_, _| (), None)?;
@@ -756,7 +837,7 @@ mod tests {
         scheduler.try_schedule()
     }
 
-    #[cfg(all(unix, feature = "korosensei"))]
+    #[cfg(feature = "korosensei")]
     #[test]
     fn test_trap() -> std::io::Result<()> {
         let mut scheduler = SchedulerImpl::default();
@@ -772,7 +853,7 @@ mod tests {
         scheduler.try_schedule()
     }
 
-    #[cfg(all(unix, feature = "korosensei", not(debug_assertions)))]
+    #[cfg(all(feature = "korosensei", not(debug_assertions)))]
     #[test]
     fn test_invalid_memory_reference() -> std::io::Result<()> {
         let mut scheduler = SchedulerImpl::default();

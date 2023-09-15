@@ -198,6 +198,19 @@ pub struct CoroutinePoolImpl<'p> {
     waits: DashMap<&'p str, Arc<(Mutex<bool>, Condvar)>>,
 }
 
+impl Drop for CoroutinePoolImpl<'_> {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            assert_eq!(
+                0,
+                self.get_running_size(),
+                "There are still tasks in progress !"
+            );
+            assert!(self.is_empty(), "There are still tasks to be carried out !");
+        }
+    }
+}
+
 impl RefUnwindSafe for CoroutinePoolImpl<'_> {}
 
 impl Named for CoroutinePoolImpl<'_> {
@@ -347,6 +360,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         self.task_queue.len()
     }
 
+    #[allow(box_pointers)]
     fn try_run(&self) -> Option<()> {
         self.pop().map(|task| {
             let (task_name, result) = task.run();
@@ -354,6 +368,9 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                 self.results.insert(task_name.clone(), result).is_none(),
                 "The previous result was not retrieved in a timely manner"
             );
+            _ = self
+                .workers
+                .try_resume(Box::leak(Box::from(task_name.clone())));
             if let Some(arc) = self.waits.get(&*task_name) {
                 let (lock, cvar) = &**arc;
                 let mut pending = lock.lock().unwrap();
@@ -452,7 +469,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
 mod tests {
     use super::*;
     use crate::coroutine::suspender::SimpleDelaySuspender;
-    use crate::scheduler::SchedulableSuspender;
+    use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender};
 
     #[test]
     fn test_simple() {
@@ -494,6 +511,23 @@ mod tests {
     }
 
     #[test]
+    fn test_current() -> std::io::Result<()> {
+        let mut pool = CoroutinePoolImpl::default();
+        _ = pool.submit(
+            None,
+            |_| {
+                assert!(SchedulableCoroutine::current().is_some());
+                assert!(SchedulableSuspender::current().is_some());
+                assert!(SchedulerImpl::current().is_some());
+                assert!(CoroutinePoolImpl::current().is_some());
+                None
+            },
+            None,
+        );
+        pool.try_schedule()
+    }
+
+    #[test]
     fn test_suspend() -> std::io::Result<()> {
         let mut pool = CoroutinePoolImpl::default();
         pool.set_max_size(2);
@@ -518,7 +552,7 @@ mod tests {
             None,
         );
         pool.try_schedule()?;
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(200));
         pool.try_schedule()
     }
 
