@@ -3,7 +3,7 @@ use crate::coroutine::suspender::SimpleSuspender;
 use crate::coroutine::{Current, Named};
 use crate::pool::creator::CoroutineCreator;
 use crate::pool::task::{Task, TaskImpl};
-use crate::scheduler::{Scheduler, SchedulerImpl};
+use crate::scheduler::{SchedulableCoroutine, Scheduler, SchedulerImpl};
 use crossbeam_deque::{Injector, Steal};
 use dashmap::DashMap;
 use std::cell::RefCell;
@@ -455,6 +455,18 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         wait_time: Duration,
     ) -> std::io::Result<Option<(String, Result<Option<usize>, &str>)>> {
         let key = Box::leak(Box::from(task_name));
+        if SchedulableCoroutine::current().is_some() {
+            let timeout_time = open_coroutine_timer::get_timeout_time(wait_time);
+            loop {
+                _ = self.try_run();
+                if let Some(r) = self.try_get_result(key) {
+                    return Ok(Some(r));
+                }
+                if timeout_time.saturating_sub(open_coroutine_timer::now()) == 0 {
+                    return Err(Error::new(ErrorKind::Other, "wait timeout"));
+                }
+            }
+        }
         let arc = if let Some(arc) = self.waits.get(key) {
             arc.clone()
         } else {
@@ -478,7 +490,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
 mod tests {
     use super::*;
     use crate::coroutine::suspender::SimpleDelaySuspender;
-    use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender};
+    use crate::scheduler::SchedulableSuspender;
 
     #[test]
     fn test_simple() {
@@ -645,5 +657,55 @@ mod tests {
             Ok(v) => assert_eq!(Some((String::from(task_name), Ok(Some(2)))), v),
             Err(e) => panic!("{e}"),
         }
+    }
+
+    #[test]
+    fn test_co_simple() -> std::io::Result<()> {
+        let mut scheduler = SchedulerImpl::default();
+        scheduler.submit(
+            |_, _| {
+                let task_name = "test_co_simple";
+                let pool = CoroutinePoolImpl::default();
+                pool.set_max_size(1);
+                let result = pool.submit_and_wait(
+                    Some(String::from(task_name)),
+                    |_| Some(1),
+                    None,
+                    Duration::from_secs(1),
+                );
+                assert_eq!(
+                    Some((String::from(task_name), Ok(Some(1)))),
+                    result.unwrap()
+                );
+            },
+            None,
+        )?;
+        scheduler.try_schedule()
+    }
+
+    #[test]
+    fn test_nest() {
+        let pool = Arc::new(CoroutinePoolImpl::default());
+        pool.set_max_size(1);
+        let arc = pool.clone();
+        _ = pool.submit_and_wait(
+            None,
+            move |_| {
+                println!("start");
+                _ = arc.submit_and_wait(
+                    None,
+                    |_| {
+                        println!("middle");
+                        None
+                    },
+                    None,
+                    Duration::from_secs(1),
+                );
+                println!("end");
+                None
+            },
+            None,
+            Duration::from_secs(1),
+        );
     }
 }
