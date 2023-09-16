@@ -62,22 +62,22 @@ where
 {
     #[allow(clippy::ptr_as_ptr)]
     fn init_current(current: &CoroutineImpl<'c, Param, Yield, Return>) {
-        COROUTINE.with(|c| c.set(current as *const _ as *const c_void));
+        COROUTINE.with(|s| {
+            s.borrow_mut()
+                .push_front(current as *const _ as *const c_void);
+        });
     }
 
     fn current() -> Option<&'c Self> {
-        COROUTINE.with(|boxed| {
-            let ptr = boxed.get();
-            if ptr.is_null() {
-                None
-            } else {
-                Some(unsafe { &*(ptr).cast::<CoroutineImpl<'c, Param, Yield, Return>>() })
-            }
+        COROUTINE.with(|s| {
+            s.borrow()
+                .front()
+                .map(|ptr| unsafe { &*(*ptr).cast::<CoroutineImpl<'c, Param, Yield, Return>>() })
         })
     }
 
     fn clean_current() {
-        COROUTINE.with(|boxed| boxed.set(std::ptr::null()));
+        COROUTINE.with(|s| _ = s.borrow_mut().pop_front());
     }
 }
 

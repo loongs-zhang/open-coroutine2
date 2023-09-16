@@ -4,7 +4,7 @@ use crate::coroutine::{Coroutine, CoroutineImpl, Current, Named, SimpleCoroutine
 use dashmap::DashMap;
 use open_coroutine_queue::LocalQueue;
 use open_coroutine_timer::TimerList;
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::fmt::Debug;
@@ -539,8 +539,16 @@ impl Drop for SchedulerImpl<'_> {
     }
 }
 
+impl Eq for SchedulerImpl<'_> {}
+
+impl PartialEq for SchedulerImpl<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name.eq(&other.name)
+    }
+}
+
 thread_local! {
-    static SCHEDULER: Cell<*const c_void> = Cell::new(std::ptr::null());
+    static SCHEDULER: RefCell<VecDeque<*const c_void>> = RefCell::new(VecDeque::new());
 }
 
 impl<'s> Current<'s> for SchedulerImpl<'s> {
@@ -549,20 +557,20 @@ impl<'s> Current<'s> for SchedulerImpl<'s> {
     where
         Self: Sized,
     {
-        SCHEDULER.with(|c| c.set(current as *const _ as *const c_void));
+        SCHEDULER.with(|s| {
+            s.borrow_mut()
+                .push_front(current as *const _ as *const c_void);
+        });
     }
 
     fn current() -> Option<&'s Self>
     where
         Self: Sized,
     {
-        SCHEDULER.with(|boxed| {
-            let ptr = boxed.get();
-            if ptr.is_null() {
-                None
-            } else {
-                Some(unsafe { &*(ptr).cast::<SchedulerImpl<'s>>() })
-            }
+        SCHEDULER.with(|s| {
+            s.borrow()
+                .front()
+                .map(|ptr| unsafe { &*(*ptr).cast::<SchedulerImpl<'s>>() })
         })
     }
 
@@ -570,7 +578,7 @@ impl<'s> Current<'s> for SchedulerImpl<'s> {
     where
         Self: Sized,
     {
-        SCHEDULER.with(|boxed| boxed.set(std::ptr::null()));
+        SCHEDULER.with(|s| _ = s.borrow_mut().pop_front());
     }
 }
 
@@ -667,6 +675,7 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     }
 
     fn try_timeout_schedule(&mut self, timeout_time: u64) -> std::io::Result<u64> {
+        Self::init_current(self);
         loop {
             let left_time = timeout_time.saturating_sub(open_coroutine_timer::now());
             if left_time == 0 {
@@ -675,7 +684,6 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
             }
             self.check_ready()?;
             // schedule coroutines
-            Self::init_current(self);
             match self.ready.pop_front() {
                 None => {
                     Self::clean_current();
@@ -753,12 +761,38 @@ mod tests {
 
     #[test]
     fn test_current() -> std::io::Result<()> {
-        let mut scheduler = SchedulerImpl::default();
+        let parent_name = "parent";
+        let mut scheduler = SchedulerImpl::new(
+            String::from(parent_name),
+            crate::coroutine::DEFAULT_STACK_SIZE,
+        );
         scheduler.submit(
             |_, _| {
                 assert!(SchedulableCoroutine::current().is_some());
                 assert!(SchedulableSuspender::current().is_some());
-                assert!(SchedulerImpl::current().is_some());
+                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
+                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
+
+                let child_name = "child";
+                let mut scheduler = SchedulerImpl::new(
+                    String::from(child_name),
+                    crate::coroutine::DEFAULT_STACK_SIZE,
+                );
+                scheduler
+                    .submit(
+                        |_, _| {
+                            assert!(SchedulableCoroutine::current().is_some());
+                            assert!(SchedulableSuspender::current().is_some());
+                            assert_eq!(child_name, SchedulerImpl::current().unwrap().get_name());
+                            assert_eq!(child_name, SchedulerImpl::current().unwrap().get_name());
+                        },
+                        None,
+                    )
+                    .unwrap();
+                scheduler.try_schedule().unwrap();
+
+                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
+                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
             },
             None,
         )?;

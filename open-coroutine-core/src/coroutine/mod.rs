@@ -1,7 +1,8 @@
 use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::Suspender;
-use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::panic::UnwindSafe;
@@ -191,7 +192,7 @@ impl<'c, SimpleCoroutineImpl: Coroutine<'c, Resume = ()>> SimpleCoroutine<'c>
 /// Create a new coroutine.
 #[macro_export]
 macro_rules! co {
-    ($f:expr, $size:expr $(,)?) => {
+    ($f:expr, $size:literal $(,)?) => {
         $crate::coroutine::CoroutineImpl::new(uuid::Uuid::new_v4().to_string(), $f, $size)
             .expect("create coroutine failed !")
     };
@@ -203,17 +204,17 @@ macro_rules! co {
         )
         .expect("create coroutine failed !")
     };
-    ($name:literal, $f:expr, $size:expr $(,)?) => {
+    ($name:expr, $f:expr, $size:expr $(,)?) => {
         $crate::coroutine::CoroutineImpl::new($name, $f, $size).expect("create coroutine failed !")
     };
-    ($name:literal, $f:expr $(,)?) => {
+    ($name:expr, $f:expr $(,)?) => {
         $crate::coroutine::CoroutineImpl::new($name, $f, $crate::coroutine::DEFAULT_STACK_SIZE)
             .expect("create coroutine failed !")
     };
 }
 
 thread_local! {
-    pub(crate) static COROUTINE: Cell<*const c_void> = Cell::new(std::ptr::null());
+    pub(crate) static COROUTINE: RefCell<VecDeque<*const c_void>> = RefCell::new(VecDeque::new());
 }
 
 #[cfg(test)]
@@ -270,15 +271,62 @@ mod tests {
     #[test]
     fn test_current() {
         assert!(CoroutineImpl::<i32, i32, i32>::current().is_none());
-        let mut coroutine = co!(|_: &dyn Suspender<'_, Resume = i32, Yield = i32>, input| {
-            assert_eq!(0, input);
-            assert!(CoroutineImpl::<i32, i32, i32>::current().is_some());
-            1
-        });
-        assert_eq!(
-            CoroutineState::Complete(1),
-            coroutine.resume_with(0).unwrap()
+        let parent_name = "parent";
+        let mut parent = co!(
+            String::from(parent_name),
+            |_: &dyn Suspender<'_, Resume = i32, Yield = i32>, input| {
+                assert_eq!(0, input);
+                assert_eq!(
+                    parent_name,
+                    CoroutineImpl::<i32, i32, i32>::current()
+                        .unwrap()
+                        .get_name()
+                );
+                assert_eq!(
+                    parent_name,
+                    CoroutineImpl::<i32, i32, i32>::current()
+                        .unwrap()
+                        .get_name()
+                );
+
+                let child_name = "child";
+                let mut child = co!(
+                    String::from(child_name),
+                    |_: &dyn Suspender<'_, Resume = i32, Yield = i32>, input| {
+                        assert_eq!(0, input);
+                        assert_eq!(
+                            child_name,
+                            CoroutineImpl::<i32, i32, i32>::current()
+                                .unwrap()
+                                .get_name()
+                        );
+                        assert_eq!(
+                            child_name,
+                            CoroutineImpl::<i32, i32, i32>::current()
+                                .unwrap()
+                                .get_name()
+                        );
+                        1
+                    }
+                );
+                assert_eq!(CoroutineState::Complete(1), child.resume_with(0).unwrap());
+
+                assert_eq!(
+                    parent_name,
+                    CoroutineImpl::<i32, i32, i32>::current()
+                        .unwrap()
+                        .get_name()
+                );
+                assert_eq!(
+                    parent_name,
+                    CoroutineImpl::<i32, i32, i32>::current()
+                        .unwrap()
+                        .get_name()
+                );
+                1
+            }
         );
+        assert_eq!(CoroutineState::Complete(1), parent.resume_with(0).unwrap());
     }
 
     #[test]

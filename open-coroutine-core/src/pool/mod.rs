@@ -6,7 +6,8 @@ use crate::pool::task::{Task, TaskImpl};
 use crate::scheduler::{Scheduler, SchedulerImpl};
 use crossbeam_deque::{Injector, Steal};
 use dashmap::DashMap;
-use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
@@ -233,8 +234,16 @@ impl Default for CoroutinePoolImpl<'_> {
     }
 }
 
+impl Eq for CoroutinePoolImpl<'_> {}
+
+impl PartialEq for CoroutinePoolImpl<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.workers.eq(&other.workers)
+    }
+}
+
 thread_local! {
-    static COROUTINE_POOL: Cell<*const c_void> = Cell::new(std::ptr::null());
+    static COROUTINE_POOL: RefCell<VecDeque<*const c_void>> = RefCell::new(VecDeque::new());
 }
 
 impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
@@ -243,20 +252,20 @@ impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
     where
         Self: Sized,
     {
-        COROUTINE_POOL.with(|c| c.set(current as *const _ as *const c_void));
+        COROUTINE_POOL.with(|s| {
+            s.borrow_mut()
+                .push_front(current as *const _ as *const c_void);
+        });
     }
 
     fn current() -> Option<&'p Self>
     where
         Self: Sized,
     {
-        COROUTINE_POOL.with(|boxed| {
-            let ptr = boxed.get();
-            if ptr.is_null() {
-                None
-            } else {
-                Some(unsafe { &*(ptr).cast::<CoroutinePoolImpl<'p>>() })
-            }
+        COROUTINE_POOL.with(|s| {
+            s.borrow()
+                .front()
+                .map(|ptr| unsafe { &*(*ptr).cast::<CoroutinePoolImpl<'p>>() })
         })
     }
 
@@ -264,7 +273,7 @@ impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
     where
         Self: Sized,
     {
-        COROUTINE_POOL.with(|boxed| boxed.set(std::ptr::null()));
+        COROUTINE_POOL.with(|s| _ = s.borrow_mut().pop_front());
     }
 }
 
@@ -512,14 +521,61 @@ mod tests {
 
     #[test]
     fn test_current() -> std::io::Result<()> {
-        let mut pool = CoroutinePoolImpl::default();
+        let parent_name = "parent";
+        let mut pool = CoroutinePoolImpl::new(
+            String::from(parent_name),
+            crate::coroutine::DEFAULT_STACK_SIZE,
+            0,
+            65536,
+            0,
+            crate::blocker::SleepBlocker {},
+        );
         _ = pool.submit(
             None,
             |_| {
                 assert!(SchedulableCoroutine::current().is_some());
                 assert!(SchedulableSuspender::current().is_some());
                 assert!(SchedulerImpl::current().is_some());
-                assert!(CoroutinePoolImpl::current().is_some());
+                assert_eq!(
+                    parent_name,
+                    CoroutinePoolImpl::current().unwrap().get_name()
+                );
+                assert_eq!(
+                    parent_name,
+                    CoroutinePoolImpl::current().unwrap().get_name()
+                );
+
+                let child_name = "child";
+                let mut pool = CoroutinePoolImpl::new(
+                    String::from(child_name),
+                    crate::coroutine::DEFAULT_STACK_SIZE,
+                    0,
+                    65536,
+                    0,
+                    crate::blocker::SleepBlocker {},
+                );
+                _ = pool.submit(
+                    None,
+                    |_| {
+                        assert!(SchedulableCoroutine::current().is_some());
+                        assert!(SchedulableSuspender::current().is_some());
+                        assert!(SchedulerImpl::current().is_some());
+                        assert_eq!(child_name, CoroutinePoolImpl::current().unwrap().get_name());
+                        assert_eq!(child_name, CoroutinePoolImpl::current().unwrap().get_name());
+                        None
+                    },
+                    None,
+                );
+                pool.try_schedule().unwrap();
+
+                assert_eq!(
+                    parent_name,
+                    CoroutinePoolImpl::current().unwrap().get_name()
+                );
+                assert_eq!(
+                    parent_name,
+                    CoroutinePoolImpl::current().unwrap().get_name()
+                );
                 None
             },
             None,
