@@ -45,6 +45,9 @@
 
 //! see `https://github.com/acl-dev/open-coroutine`
 
+#[allow(missing_docs)]
+pub mod log;
+
 /// Coroutine abstraction and impl.
 pub mod coroutine;
 

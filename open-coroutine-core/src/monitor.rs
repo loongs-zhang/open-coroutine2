@@ -150,8 +150,14 @@ impl Monitor for MonitorImpl {
                                                 if pthread_kill(node.pthread, Signal::SIGURG)
                                                     .is_err()
                                                 {
-                                                    todo!("log");
-                                                };
+                                                    cfg_if::cfg_if!{
+                                                        if #[cfg(feature = "logs")] {
+                                                            use crate::coroutine::Named;
+                                                            crate::error!("Attempt to preempt scheduling for the coroutine:{} in thread:{} failed !",
+                                                                coroutine.get_name(), node.pthread);
+                                                        }
+                                                    }
+                                                }
                                             }
                                             None
                                         },

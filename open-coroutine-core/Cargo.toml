@@ -24,6 +24,8 @@ open-coroutine-timer = { version = "0.5.0", path = "../open-coroutine-timer" }
 open-coroutine-queue = { version = "0.5.0", path = "../open-coroutine-queue" }
 corosensei = { version = "0.1.4", optional = true }
 context = { version = "3.0.0", optional = true }
+log = { version = "0.4.20", optional = true }
+simplelog = { version = "0.12.1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.148"
@@ -44,7 +46,7 @@ cfg-if = "1.0.0"
 backtrace = "0.3.67"
 
 [features]
-default = ["preemptive-schedule"]
+default = ["full"]
 
 # Supported low-level coroutines.
 boost = ["context"]
@@ -53,3 +55,10 @@ korosensei = ["corosensei"]
 # Provide preemptive scheduling implementation.
 # Enable for default.
 preemptive-schedule = ["korosensei", "nix/pthread"]
+
+# Print some help log.
+# Enable for default.
+logs = ["log", "simplelog"]
+
+# Enable all features.
+full = ["preemptive-schedule", "logs"]

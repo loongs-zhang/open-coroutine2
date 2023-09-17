@@ -75,10 +75,13 @@ impl<'t> Task<'t> for TaskImpl<'t> {
     fn run<'e>(self) -> (String, Result<Option<usize>, &'e str>) {
         let paran = self.get_param();
         (
-            self.name,
+            self.name.clone(),
             std::panic::catch_unwind(|| (self.func)(paran)).map_err(|e| {
-                *e.downcast_ref::<&'static str>()
-                    .unwrap_or(&"task failed without message")
+                let message = *e
+                    .downcast_ref::<&'static str>()
+                    .unwrap_or(&"task failed without message");
+                crate::error!("task:{} finish with error:{}", self.name, message);
+                message
             }),
         )
     }

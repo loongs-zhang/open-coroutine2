@@ -217,6 +217,11 @@ where
                     let message = error
                         .downcast_ref::<&'static str>()
                         .unwrap_or(&"coroutine failed without message");
+                    crate::error!(
+                        "coroutine:{} finish with error:{}",
+                        self.get_name(),
+                        message
+                    );
                     self.error(message)?;
                     CoroutineState::Error(message)
                 }
