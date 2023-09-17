@@ -375,4 +375,42 @@ mod tests {
         };
         assert!(error);
     }
+
+    #[test]
+    fn test_trap() {
+        let mut coroutine = co!(|_: &dyn Suspender<'_, Yield = (), Resume = ()>, ()| {
+            println!("Before trap");
+            unsafe { std::ptr::write_volatile(1 as *mut u8, 0) };
+            println!("After trap");
+        });
+        let result = coroutine.resume();
+        assert!(result.is_ok());
+        let error = match result.unwrap() {
+            CoroutineState::Error(_) => true,
+            _ => false,
+        };
+        assert!(error);
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn test_invalid_memory_reference() {
+        let mut coroutine = co!(|_: &dyn Suspender<'_, Yield = (), Resume = ()>, ()| {
+            println!("Before invalid memory reference");
+            // 没有加--release运行，会收到SIGABRT信号，不好处理，直接禁用测试
+            unsafe {
+                let co = &*((1usize as *mut c_void).cast::<CoroutineImpl<(), (), ()>>());
+                println!("{}", co.state());
+            }
+            println!("After invalid memory reference");
+        });
+        let result = coroutine.resume();
+        assert!(result.is_ok());
+        println!("{:?}", result);
+        let error = match result.unwrap() {
+            CoroutineState::Error(_) => true,
+            _ => false,
+        };
+        assert!(error);
+    }
 }

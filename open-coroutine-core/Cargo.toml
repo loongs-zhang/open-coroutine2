@@ -50,11 +50,11 @@ default = ["full"]
 
 # Supported low-level coroutines.
 boost = ["context"]
-korosensei = ["corosensei"]
+korosensei = ["corosensei", "nix/pthread"]
 
 # Provide preemptive scheduling implementation.
 # Enable for default.
-preemptive-schedule = ["korosensei", "nix/pthread"]
+preemptive-schedule = ["korosensei"]
 
 # Print some help log.
 # Enable for default.
