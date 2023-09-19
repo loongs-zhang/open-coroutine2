@@ -1,0 +1,41 @@
+[package]
+name = "open-coroutine-net"
+version = "0.5.0"
+edition = "2021"
+authors = ["zhangzicheng@apache.org"]
+description = "The open-coroutine is a simple, efficient and generic coroutine library."
+repository = "https://github.com/acl-dev/open-coroutine/tree/dev/open-coroutine-net"
+keywords = ["open-coroutine", "net"]
+categories = ["data-structures", "concurrency", "asynchronous", "network-programming"]
+license = "LGPL-3.0 OR Apache-2.0"
+readme = "../README.md"
+
+[dependencies]
+libc = "0.2.148"
+cfg-if = "1.0.0"
+dashmap = "5.5.1"
+once_cell = "1.18.0"
+polling = "3.0.0"
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+io-uring = { version = "0.6.1", optional = true }
+
+[build-dependencies]
+cfg-if = "1.0.0"
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+cc = "1.0.82"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+slab = "0.4.8"
+
+[features]
+default = ["compatible"]
+
+# Compatibility mode, try selecting the mode with the highest performance.
+# If it is unsupported at the operating system level, it will be downgraded.
+# The priorities will be io_uring > epoll/kevent/iocp
+compatible = ["io_uring"]
+
+# Disable compatible feature and only enable this feature to force the use of io_uring.
+io_uring = ["io-uring"]

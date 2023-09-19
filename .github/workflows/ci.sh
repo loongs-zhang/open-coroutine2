@@ -15,7 +15,7 @@ fi
 export RUST_TEST_THREADS=1
 export RUST_BACKTRACE=1
 
-# open-coroutine-core korosensei
+# open-coroutine-core
 cd "${PROJECT_DIR}"/open-coroutine-core
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei --release
@@ -23,8 +23,10 @@ cd "${PROJECT_DIR}"/open-coroutine-core
 "${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule
 "${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule --release
 
-# todo io_uring
-#if [ "${OS}" = "ubuntu-latest" ]; then
-#    "${CARGO}" test $CARGO_TEST_FLAGS --target "${TARGET}" --all-targets --features asm-unwind
-#    "${CARGO}" test $CARGO_TEST_FLAGS --target "${TARGET}" --all-targets --features asm-unwind --release
-#fi
+# open-coroutine-net
+cd "${PROJECT_DIR}"/open-coroutine-net
+"${CARGO}" test --target "${TARGET}" --no-default-features
+"${CARGO}" test --target "${TARGET}" --no-default-features --release
+
+"${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring
+"${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring --release
