@@ -4,7 +4,7 @@ use crate::pool::{CoroutinePool, CoroutinePoolImpl};
 use crate::scheduler::{Listener, SchedulableCoroutine};
 use std::sync::atomic::Ordering;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct CoroutineCreator {}
 
 impl Listener for CoroutineCreator {

@@ -377,7 +377,7 @@ impl Named for SchedulerImpl<'_> {
 impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     fn init(&mut self) {
         #[cfg(all(unix, feature = "preemptive-schedule"))]
-        self.add_listener(crate::monitor::MonitorListener {});
+        self.add_listener(crate::monitor::MonitorListener::default());
     }
 
     fn set_stack_size(&self, stack_size: usize) {
@@ -585,7 +585,7 @@ mod tests {
         scheduler.try_schedule()
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct TestListener {}
     impl Listener for TestListener {
         fn on_create(&self, coroutine: &SchedulableCoroutine) {
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn test_listener() -> std::io::Result<()> {
         let mut scheduler = SchedulerImpl::default();
-        scheduler.add_listener(TestListener {});
+        scheduler.add_listener(TestListener::default());
         scheduler.submit(|_, _| panic!("test panic, just ignore it"), None)?;
         scheduler.submit(|_, _| println!("2"), None)?;
         scheduler.try_schedule()

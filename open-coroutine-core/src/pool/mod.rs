@@ -241,7 +241,7 @@ impl Named for CoroutinePoolImpl<'_> {
 
 impl Default for CoroutinePoolImpl<'_> {
     fn default() -> Self {
-        let blocker = crate::blocker::SleepBlocker {};
+        let blocker = crate::blocker::SleepBlocker::default();
         Self::new(
             uuid::Uuid::new_v4().to_string(),
             crate::coroutine::DEFAULT_STACK_SIZE,
@@ -363,7 +363,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
 
     #[allow(box_pointers)]
     fn init(&mut self) {
-        self.workers.add_listener(CoroutineCreator {});
+        self.workers.add_listener(CoroutineCreator::default());
     }
 
     fn set_stack_size(&self, stack_size: usize) {
@@ -414,7 +414,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
     }
 
     fn grow(&self, should_grow: bool) -> std::io::Result<()> {
-        if !should_grow || self.is_empty() || self.get_running_size() >= self.get_max_size() {
+        if !should_grow && self.is_empty() || self.get_running_size() >= self.get_max_size() {
             return Ok(());
         }
         let create_time = open_coroutine_timer::now();
@@ -575,7 +575,7 @@ mod tests {
             0,
             65536,
             0,
-            crate::blocker::SleepBlocker {},
+            crate::blocker::SleepBlocker::default(),
         );
         _ = pool.submit(
             None,
@@ -599,7 +599,7 @@ mod tests {
                     0,
                     65536,
                     0,
-                    crate::blocker::SleepBlocker {},
+                    crate::blocker::SleepBlocker::default(),
                 );
                 _ = pool.submit(
                     None,
@@ -742,5 +742,21 @@ mod tests {
             None,
             Duration::from_secs(1),
         );
+    }
+
+    #[test]
+    fn test_stop() -> std::io::Result<()> {
+        let mut pool = CoroutinePoolImpl::default();
+        pool.set_max_size(1);
+        _ = pool.submit(None, |_| panic!("test panic, just ignore it"), None);
+        _ = pool.submit(
+            None,
+            |_| {
+                println!("2");
+                Some(2)
+            },
+            None,
+        );
+        pool.stop(Duration::from_secs(1))
     }
 }

@@ -1,4 +1,4 @@
-use crate::blocker::Blocker;
+use crate::blocker::{Blocker, SleepBlocker};
 use crate::coroutine::constants::CoroutineState;
 use crate::coroutine::suspender::SimpleSuspender;
 use crate::coroutine::{Coroutine, Current, StateMachine};
@@ -7,7 +7,7 @@ use crate::scheduler::{Listener, SchedulableCoroutine, SchedulableSuspender};
 use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use open_coroutine_timer::TimerList;
-use std::cell::UnsafeCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
@@ -25,6 +25,9 @@ struct TaskNode {
 trait Monitor {
     /// Get a global `WorkStealQueue` instance.
     fn get_instance<'m>() -> &'m Self;
+
+    /// Change the global blocker in Monitor.
+    fn change_blocker(blocker: impl Blocker + 'static) -> Box<dyn Blocker>;
 
     /// Start this monitor.
     ///
@@ -53,19 +56,18 @@ struct MonitorImpl {
     tasks: UnsafeCell<TimerList<TaskNode>>,
     run: AtomicBool,
     monitor: UnsafeCell<MaybeUninit<JoinHandle<()>>>,
-    blocker: Box<dyn Blocker>,
+    blocker: RefCell<Box<dyn Blocker>>,
 }
 
 impl Default for MonitorImpl {
-    #[allow(box_pointers)]
     fn default() -> Self {
-        let blocker = Box::new(crate::blocker::SleepBlocker {});
         MonitorImpl {
             cpu: 0,
             tasks: UnsafeCell::new(TimerList::default()),
             run: AtomicBool::default(),
             monitor: UnsafeCell::new(MaybeUninit::uninit()),
-            blocker,
+            #[allow(box_pointers)]
+            blocker: RefCell::new(Box::<SleepBlocker>::default()),
         }
     }
 }
@@ -93,6 +95,11 @@ impl Monitor for MonitorImpl {
             MONITOR.store(ret, Ordering::Relaxed);
         }
         unsafe { &*(ret as *mut MonitorImpl) }
+    }
+
+    #[allow(box_pointers)]
+    fn change_blocker(blocker: impl Blocker + 'static) -> Box<dyn Blocker> {
+        Self::get_instance().blocker.replace(Box::new(blocker))
     }
 
     fn start(&self) -> std::io::Result<()> {
@@ -128,7 +135,7 @@ impl Monitor for MonitorImpl {
                             1,
                             1,
                             0,
-                            crate::blocker::DelayBlocker {},
+                            crate::blocker::DelayBlocker::default(),
                         );
                         let tasks = unsafe { &*monitor.tasks.get() };
                         while monitor.run.load(Ordering::Acquire) || !tasks.is_empty() {
@@ -164,8 +171,13 @@ impl Monitor for MonitorImpl {
                                 _ = pool.try_schedule();
                             }
                             //monitor线程不执行协程计算任务，每次循环至少wait 1ms
-                            #[allow(box_pointers)]
-                            monitor.blocker.block(Duration::from_millis(1));
+                            loop {
+                                #[allow(box_pointers)]
+                                if let Ok(blocker) = monitor.blocker.try_borrow() {
+                                    blocker.block(Duration::from_millis(1));
+                                    break;
+                                }
+                            }
                         }
                     })
                     .map_err(|e| Error::new(ErrorKind::Other, format!("{e:?}")))?,
@@ -207,7 +219,7 @@ impl Monitor for MonitorImpl {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct MonitorListener {}
 
 const MONITOR_TIMESTAMP: &str = "MONITOR_TIMESTAMP";
@@ -245,7 +257,16 @@ impl Listener for MonitorListener {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blocker::DelayBlocker;
     use std::os::unix::prelude::JoinHandleExt;
+
+    #[test]
+    fn change_blocker() {
+        let previous = MonitorImpl::change_blocker(DelayBlocker::default());
+        assert_eq!("SleepBlocker", previous.get_name());
+        let previous = MonitorImpl::change_blocker(SleepBlocker::default());
+        assert_eq!("DelayBlocker", previous.get_name());
+    }
 
     static SIGNALED: AtomicBool = AtomicBool::new(false);
 
@@ -266,9 +287,7 @@ mod tests {
         });
         std::thread::sleep(Duration::from_secs(1));
         pthread_kill(handle.as_pthread_t(), Signal::SIGUSR1)?;
-        handle
-            .join()
-            .map_err(|e| Error::new(ErrorKind::Other, format!("{e:?}")))?;
+        std::thread::sleep(Duration::from_secs(2));
         assert!(SIGNALED.load(Ordering::Relaxed));
         Ok(())
     }
