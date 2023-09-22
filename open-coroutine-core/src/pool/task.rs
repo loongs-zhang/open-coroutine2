@@ -109,10 +109,13 @@ mod tests {
         let task = TaskImpl::new(
             String::from("test"),
             |_| {
-                panic!("no");
+                panic!("test panic, just ignore it");
             },
             None,
         );
-        assert_eq!((String::from("test"), Err("no")), task.run());
+        assert_eq!(
+            (String::from("test"), Err("test panic, just ignore it")),
+            task.run()
+        );
     }
 }

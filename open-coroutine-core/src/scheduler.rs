@@ -237,7 +237,7 @@ impl SchedulerImpl<'_> {
                                         }
                                         self.ready.push_back(coroutine);
                                     }
-                                    _ => unreachable!("should never execute to here"),
+                                    _ => unreachable!("check_ready should never execute to here"),
                                 }
                             }
                         }
@@ -407,7 +407,7 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
                 CoroutineState::SystemCall(val, syscall, _) => {
                     coroutine.syscall(val, syscall, SyscallState::Finished)?;
                 }
-                _ => unreachable!("should never execute to here"),
+                _ => unreachable!("try_resume should never execute to here"),
             }
             self.ready.push_back(coroutine);
         }
@@ -461,7 +461,7 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
                                     Self::clean_current();
                                     return Err(Error::new(
                                         ErrorKind::Other,
-                                        "should never execute to here",
+                                        "try_timeout_schedule should never execute to here",
                                     ));
                                 }
                             };
@@ -606,7 +606,7 @@ mod tests {
     fn test_listener() -> std::io::Result<()> {
         let mut scheduler = SchedulerImpl::default();
         scheduler.add_listener(TestListener {});
-        scheduler.submit(|_, _| panic!("1"), None)?;
+        scheduler.submit(|_, _| panic!("test panic, just ignore it"), None)?;
         scheduler.submit(|_, _| println!("2"), None)?;
         scheduler.try_schedule()
     }

@@ -52,6 +52,9 @@ pub mod version;
 /// Event driven abstraction and impl.
 pub mod selector;
 
+#[allow(missing_docs, clippy::missing_errors_doc)]
+pub mod event_loop;
+
 /// `io_uring` abstraction and impl.
 #[allow(missing_docs, clippy::missing_errors_doc)]
 pub mod operator;

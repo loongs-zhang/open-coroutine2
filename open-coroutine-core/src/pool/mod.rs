@@ -82,6 +82,15 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
         ))
     }
 
+    /// Resume a coroutine from the system call table to the ready queue,
+    /// it's generally only required for framework level crates.
+    ///
+    /// If we can't find the coroutine, nothing happens.
+    ///
+    /// # Errors
+    /// if change to ready fails.
+    fn try_resume(&self, co_name: &'p str) -> std::io::Result<()>;
+
     /// Submit new task to this pool.
     ///
     /// Allow multiple threads to concurrently submit task to the pool,
@@ -344,6 +353,10 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         self.keep_alive_time.load(Ordering::Acquire)
     }
 
+    fn try_resume(&self, co_name: &'p str) -> std::io::Result<()> {
+        self.workers.try_resume(co_name)
+    }
+
     #[allow(box_pointers)]
     fn submit_raw(&self, task: TaskImpl<'p>) -> &str {
         let task_name = Box::leak(Box::from(task.get_name()));
@@ -366,7 +379,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
     }
 
     fn size(&self) -> usize {
-        self.task_queue.len()
+        self.task_queue.len() + self.get_running_size()
     }
 
     #[allow(box_pointers)]
@@ -377,9 +390,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                 self.results.insert(task_name.clone(), result).is_none(),
                 "The previous result was not retrieved in a timely manner"
             );
-            _ = self
-                .workers
-                .try_resume(Box::leak(Box::from(task_name.clone())));
             if let Some(arc) = self.waits.get(&*task_name) {
                 let (lock, cvar) = &**arc;
                 let mut pending = lock.lock().unwrap();
@@ -425,7 +435,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                             pool.pop_fail_times.store(0, Ordering::Release);
                         }
                         std::cmp::Ordering::Greater => {
-                            unreachable!("should never execute to here");
+                            unreachable!("grow should never execute to here");
                         }
                     }
                 }
@@ -502,7 +512,7 @@ mod tests {
             assert!(const_ref.is_empty());
             _ = const_ref.submit(
                 Some(String::from("test_panic")),
-                |_| panic!("message"),
+                |_| panic!("test panic, just ignore it"),
                 None,
             );
             assert!(!const_ref.is_empty());
@@ -522,7 +532,10 @@ mod tests {
         }
         let const_ref = &pool;
         assert_eq!(
-            Some((String::from("test_panic"), Err("message"))),
+            Some((
+                String::from("test_panic"),
+                Err("test panic, just ignore it")
+            )),
             const_ref.try_get_result("test_panic")
         );
         assert_eq!(
