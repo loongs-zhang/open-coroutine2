@@ -15,7 +15,7 @@ fi
 export RUST_TEST_THREADS=1
 export RUST_BACKTRACE=1
 
-# open-coroutine-core korosensei
+# test open-coroutine-core mod
 cd "${PROJECT_DIR}"/open-coroutine-core
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei --release

@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn test_panic() {
         let mut coroutine = co!(|_: &dyn Suspender<'_, Yield = (), Resume = ()>, ()| {
-            panic!("test panic");
+            panic!("test panic, just ignore it");
         });
         let result = coroutine.resume();
         assert!(result.is_ok());
