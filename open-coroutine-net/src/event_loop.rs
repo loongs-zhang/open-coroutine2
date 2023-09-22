@@ -372,7 +372,7 @@ mod tests {
             None,
         );
         let now = open_coroutine_timer::now();
-        event_loop.slice_wait(Some(Duration::from_secs(1)), true)?;
+        event_loop.slice_wait(Some(Duration::from_millis(10)), true)?;
         assert!(open_coroutine_timer::now() - now >= 10_000_000);
         event_loop.stop(Duration::from_secs(1))
     }

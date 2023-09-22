@@ -23,10 +23,13 @@ cd "${PROJECT_DIR}"/open-coroutine-core
 "${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule
 "${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule --release
 
-# open-coroutine-net
+# test open-coroutine-net mod
 cd "${PROJECT_DIR}"/open-coroutine-net
 "${CARGO}" test --target "${TARGET}" --no-default-features
 "${CARGO}" test --target "${TARGET}" --no-default-features --release
 
 "${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring
 "${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring --release
+
+"${CARGO}" test --target "${TARGET}" --no-default-features --features compatible
+"${CARGO}" test --target "${TARGET}" --no-default-features --features compatible --release
