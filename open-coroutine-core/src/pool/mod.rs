@@ -118,7 +118,7 @@ pub trait CoroutinePool<'p>: Current<'p> + Pool {
     ///
     /// # Errors
     /// if create failed.
-    fn grow(&self) -> std::io::Result<()>;
+    fn grow(&self, should_grow: bool) -> std::io::Result<()>;
 
     /// Schedule the tasks.
     ///
@@ -413,11 +413,8 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         })
     }
 
-    fn grow(&self) -> std::io::Result<()> {
-        if !self.run.load(Ordering::Acquire)
-            || self.is_empty()
-            || self.get_running_size() >= self.get_max_size()
-        {
+    fn grow(&self, should_grow: bool) -> std::io::Result<()> {
+        if !should_grow || self.is_empty() || self.get_running_size() >= self.get_max_size() {
             return Ok(());
         }
         let create_time = open_coroutine_timer::now();
@@ -459,7 +456,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
 
     fn try_timeout_schedule(&mut self, timeout_time: u64) -> std::io::Result<u64> {
         Self::init_current(self);
-        self.grow()?;
+        self.grow(self.run.load(Ordering::Acquire))?;
         let result = self.workers.try_timeout_schedule(timeout_time);
         Self::clean_current();
         result

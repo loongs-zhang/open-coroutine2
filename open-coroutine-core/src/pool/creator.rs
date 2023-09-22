@@ -10,13 +10,13 @@ pub(crate) struct CoroutineCreator {}
 impl Listener for CoroutineCreator {
     fn on_suspend(&self, _: u64, _: &SchedulableCoroutine) {
         if let Some(pool) = CoroutinePoolImpl::current() {
-            _ = pool.grow();
+            _ = pool.grow(true);
         }
     }
 
     fn on_syscall(&self, _: u64, _: &SchedulableCoroutine, _: Syscall, _: SyscallState) {
         if let Some(pool) = CoroutinePoolImpl::current() {
-            _ = pool.grow();
+            _ = pool.grow(true);
         }
     }
 
@@ -24,7 +24,7 @@ impl Listener for CoroutineCreator {
         if let Some(pool) = CoroutinePoolImpl::current() {
             //worker协程异常退出，需要先回收再创建
             _ = pool.running.fetch_add(1, Ordering::Release);
-            _ = pool.grow();
+            _ = pool.grow(true);
         }
     }
 }
