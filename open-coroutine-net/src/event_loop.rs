@@ -96,7 +96,7 @@ pub trait EventLoop<'e>: Pool {
     where
         'e: 'static;
 
-    fn stop(&self, wait_time: Duration);
+    fn stop(&self, wait_time: Duration) -> std::io::Result<()>;
 }
 
 #[derive(Debug)]
@@ -336,16 +336,20 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
         Ok(arc)
     }
 
-    fn stop(&self, wait_time: Duration) {
+    fn stop(&self, wait_time: Duration) -> std::io::Result<()> {
+        let pool = unsafe { &mut *self.pool.get() };
+        _ = pool.stop(Duration::ZERO);
         self.run.store(false, Ordering::Release);
         let timeout_time = open_coroutine_timer::get_timeout_time(wait_time);
-        let pool = unsafe { &*self.pool.get() };
         loop {
             let left_time = timeout_time.saturating_sub(open_coroutine_timer::now());
-            if pool.is_empty() || left_time == 0 {
-                return;
+            self.wait(Some(Duration::from_nanos(left_time.min(10_000_000))), true)?;
+            if pool.is_empty() {
+                return Ok(());
             }
-            _ = self.wait(Some(Duration::from_millis(10)), true);
+            if left_time == 0 {
+                return Err(Error::new(ErrorKind::Other, "stop timeout !"));
+            }
         }
     }
 }
@@ -370,8 +374,7 @@ mod tests {
         let now = open_coroutine_timer::now();
         event_loop.slice_wait(Some(Duration::from_millis(10)), true)?;
         assert!(open_coroutine_timer::now() - now >= 10_000_000);
-        event_loop.stop(Duration::from_secs(1));
-        Ok(())
+        event_loop.stop(Duration::from_secs(1))
     }
 
     #[test]
@@ -390,7 +393,6 @@ mod tests {
             Duration::from_millis(100),
         );
         assert_eq!(Some((task_name, Ok(Some(2)))), result.unwrap());
-        event_loop.stop(Duration::from_secs(1));
-        Ok(())
+        event_loop.stop(Duration::from_secs(1))
     }
 }

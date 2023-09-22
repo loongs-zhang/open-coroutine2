@@ -12,7 +12,7 @@ use std::ffi::c_void;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
 use std::panic::{RefUnwindSafe, UnwindSafe};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -184,11 +184,18 @@ pub trait CoroutinePool<'p>: Current<'p> + Pool {
         let task_name = self.submit(name, func, param);
         self.wait_result(task_name, wait_time)
     }
+
+    /// Stop this pool.
+    ///
+    /// # Errors
+    /// if timeout.
+    fn stop(&mut self, wait_time: Duration) -> std::io::Result<()>;
 }
 
 #[allow(missing_docs, box_pointers, dead_code)]
 #[derive(Debug)]
 pub struct CoroutinePoolImpl<'p> {
+    run: AtomicBool,
     //任务队列
     task_queue: Injector<TaskImpl<'p>>,
     //工作协程组
@@ -338,6 +345,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         Self: Sized,
     {
         let mut pool = CoroutinePoolImpl {
+            run: AtomicBool::new(true),
             workers: SchedulerImpl::new(name, stack_size),
             running: AtomicUsize::new(0),
             pop_fail_times: AtomicUsize::new(0),
@@ -406,10 +414,10 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
     }
 
     fn grow(&self) -> std::io::Result<()> {
-        if self.is_empty() {
-            return Ok(());
-        }
-        if self.get_running_size() >= self.get_max_size() {
+        if !self.run.load(Ordering::Acquire)
+            || self.is_empty()
+            || self.get_running_size() >= self.get_max_size()
+        {
             return Ok(());
         }
         let create_time = open_coroutine_timer::now();
@@ -424,6 +432,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                     if open_coroutine_timer::now().saturating_sub(create_time)
                         >= pool.get_keep_alive_time()
                         && running > pool.get_min_size()
+                        || !pool.run.load(Ordering::Acquire)
                     {
                         //回收worker协程
                         _ = pool.running.fetch_sub(1, Ordering::Release);
@@ -495,6 +504,20 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         }
         assert!(self.waits.remove(key).is_some());
         Ok(self.try_get_result(key))
+    }
+
+    fn stop(&mut self, wait_time: Duration) -> std::io::Result<()> {
+        self.run.store(false, Ordering::Release);
+        let timeout_time = open_coroutine_timer::get_timeout_time(wait_time);
+        loop {
+            let left_time = self.try_timeout_schedule(timeout_time)?;
+            if self.is_empty() {
+                return Ok(());
+            }
+            if left_time == 0 {
+                return Err(Error::new(ErrorKind::Other, "stop timeout !"));
+            }
+        }
     }
 }
 
