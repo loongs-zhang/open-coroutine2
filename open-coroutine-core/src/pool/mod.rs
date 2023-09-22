@@ -21,27 +21,8 @@ pub mod task;
 
 mod creator;
 
-/// The `CoroutinePool` abstraction.
-pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'p> {
-    /// Create a new `CoroutinePool` instance.
-    fn new(
-        name: String,
-        stack_size: usize,
-        min_size: usize,
-        max_size: usize,
-        keep_alive_time: u64,
-        blocker: impl Blocker + 'p,
-    ) -> Self
-    where
-        Self: Sized;
-
-    /// Extension points within the open-coroutine framework.
-    fn init(&mut self);
-
-    /// Set the default stack stack size for the coroutines in this pool.
-    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
-    fn set_stack_size(&self, stack_size: usize);
-
+/// The `Pool` abstraction.
+pub trait Pool: Debug + Default + RefUnwindSafe + Named {
     /// Set the minimum number of coroutines to run in this pool.
     fn set_min_size(&self, min_size: usize);
 
@@ -64,6 +45,36 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
     /// Get the maximum idle time for coroutines running in this pool.
     /// Returns in `ns` units.
     fn get_keep_alive_time(&self) -> u64;
+
+    /// Returns `true` if the task queue is empty.
+    fn is_empty(&self) -> bool {
+        self.size() == 0
+    }
+
+    /// Returns the number of tasks owned by this pool.
+    fn size(&self) -> usize;
+}
+
+/// The `CoroutinePool` abstraction.
+pub trait CoroutinePool<'p>: Current<'p> + Pool {
+    /// Create a new `CoroutinePool` instance.
+    fn new(
+        name: String,
+        stack_size: usize,
+        min_size: usize,
+        max_size: usize,
+        keep_alive_time: u64,
+        blocker: impl Blocker + 'p,
+    ) -> Self
+    where
+        Self: Sized;
+
+    /// Extension points within the open-coroutine framework.
+    fn init(&mut self);
+
+    /// Set the default stack stack size for the coroutines in this pool.
+    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
+    fn set_stack_size(&self, stack_size: usize);
 
     /// Submit a new task to this pool.
     ///
@@ -99,14 +110,6 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
 
     /// pop a task
     fn pop(&self) -> Option<TaskImpl>;
-
-    /// Returns `true` if the task queue is empty.
-    fn is_empty(&self) -> bool {
-        self.size() == 0
-    }
-
-    /// Returns the number of tasks owned by this pool.
-    fn size(&self) -> usize;
 
     /// Attempt to run a task in current coroutine or thread.
     fn try_run(&self) -> Option<()>;
@@ -286,6 +289,41 @@ impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
     }
 }
 
+impl Pool for CoroutinePoolImpl<'_> {
+    fn set_min_size(&self, min_size: usize) {
+        self.min_size.store(min_size, Ordering::Release);
+    }
+
+    fn get_min_size(&self) -> usize {
+        self.min_size.load(Ordering::Acquire)
+    }
+
+    fn get_running_size(&self) -> usize {
+        self.running.load(Ordering::Acquire)
+    }
+
+    fn set_max_size(&self, max_size: usize) {
+        self.max_size.store(max_size, Ordering::Release);
+    }
+
+    fn get_max_size(&self) -> usize {
+        self.max_size.load(Ordering::Acquire)
+    }
+
+    fn set_keep_alive_time(&self, keep_alive_time: u64) {
+        self.keep_alive_time
+            .store(keep_alive_time, Ordering::Release);
+    }
+
+    fn get_keep_alive_time(&self) -> u64 {
+        self.keep_alive_time.load(Ordering::Acquire)
+    }
+
+    fn size(&self) -> usize {
+        self.task_queue.len() + self.get_running_size()
+    }
+}
+
 impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
     #[allow(box_pointers)]
     fn new(
@@ -324,35 +362,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         self.workers.set_stack_size(stack_size);
     }
 
-    fn set_min_size(&self, min_size: usize) {
-        self.min_size.store(min_size, Ordering::Release);
-    }
-
-    fn get_min_size(&self) -> usize {
-        self.min_size.load(Ordering::Acquire)
-    }
-
-    fn get_running_size(&self) -> usize {
-        self.running.load(Ordering::Acquire)
-    }
-
-    fn set_max_size(&self, max_size: usize) {
-        self.max_size.store(max_size, Ordering::Release);
-    }
-
-    fn get_max_size(&self) -> usize {
-        self.max_size.load(Ordering::Acquire)
-    }
-
-    fn set_keep_alive_time(&self, keep_alive_time: u64) {
-        self.keep_alive_time
-            .store(keep_alive_time, Ordering::Release);
-    }
-
-    fn get_keep_alive_time(&self) -> u64 {
-        self.keep_alive_time.load(Ordering::Acquire)
-    }
-
     fn try_resume(&self, co_name: &'p str) -> std::io::Result<()> {
         self.workers.try_resume(co_name)
     }
@@ -376,10 +385,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                 Steal::Empty => return None,
             }
         }
-    }
-
-    fn size(&self) -> usize {
-        self.task_queue.len() + self.get_running_size()
     }
 
     #[allow(box_pointers)]

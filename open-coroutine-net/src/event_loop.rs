@@ -4,19 +4,19 @@ use open_coroutine_core::blocker::DelayBlocker;
 use open_coroutine_core::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use open_coroutine_core::coroutine::suspender::SimpleDelaySuspender;
 use open_coroutine_core::coroutine::{Current, Named, StateMachine};
-use open_coroutine_core::pool::{CoroutinePool, CoroutinePoolImpl};
+use open_coroutine_core::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
 use open_coroutine_core::scheduler::{SchedulableCoroutine, SchedulableSuspender};
 use polling::Events;
 use std::cell::UnsafeCell;
 use std::ffi::{CStr, CString};
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
-use std::panic::UnwindSafe;
+use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub trait EventLoop<'e>: Debug + Default + Named {
+pub trait EventLoop<'e>: Pool {
     fn submit(
         &self,
         name: Option<String>,
@@ -145,6 +145,8 @@ unsafe impl Send for EventLoopImpl<'_> {}
 
 unsafe impl Sync for EventLoopImpl<'_> {}
 
+impl RefUnwindSafe for EventLoopImpl<'_> {}
+
 impl Default for EventLoopImpl<'_> {
     fn default() -> Self {
         Self::new(
@@ -162,6 +164,40 @@ impl Default for EventLoopImpl<'_> {
 impl Named for EventLoopImpl<'_> {
     fn get_name(&self) -> &str {
         unsafe { (*self.pool.get()).get_name() }
+    }
+}
+
+impl Pool for EventLoopImpl<'_> {
+    fn set_min_size(&self, min_size: usize) {
+        unsafe { (*self.pool.get()).set_min_size(min_size) };
+    }
+
+    fn get_min_size(&self) -> usize {
+        unsafe { (*self.pool.get()).get_min_size() }
+    }
+
+    fn get_running_size(&self) -> usize {
+        unsafe { (*self.pool.get()).get_running_size() }
+    }
+
+    fn set_max_size(&self, max_size: usize) {
+        unsafe { (*self.pool.get()).set_max_size(max_size) };
+    }
+
+    fn get_max_size(&self) -> usize {
+        unsafe { (*self.pool.get()).get_max_size() }
+    }
+
+    fn set_keep_alive_time(&self, keep_alive_time: u64) {
+        unsafe { (*self.pool.get()).set_keep_alive_time(keep_alive_time) };
+    }
+
+    fn get_keep_alive_time(&self) -> u64 {
+        unsafe { (*self.pool.get()).get_keep_alive_time() }
+    }
+
+    fn size(&self) -> usize {
+        unsafe { (*self.pool.get()).size() }
     }
 }
 
@@ -321,6 +357,7 @@ mod tests {
     #[test]
     fn test_simple() -> std::io::Result<()> {
         let event_loop = EventLoopImpl::default();
+        event_loop.set_max_size(1);
         _ = event_loop.submit(None, |_| panic!("test panic, just ignore it"), None);
         _ = event_loop.submit(
             None,
@@ -340,6 +377,7 @@ mod tests {
     #[test]
     fn test_wait() -> std::io::Result<()> {
         let event_loop = EventLoopImpl::default();
+        event_loop.set_max_size(1);
         let task_name = uuid::Uuid::new_v4().to_string();
         _ = event_loop.submit(None, |_| panic!("test panic, just ignore it"), None);
         let result = event_loop.submit_and_wait(
