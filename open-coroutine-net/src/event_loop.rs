@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_simple() -> std::io::Result<()> {
-        let event_loop = EventLoopImpl::default().start()?;
+        let event_loop = EventLoopImpl::default();
         _ = event_loop.submit(None, |_| panic!("test panic, just ignore it"), None);
         _ = event_loop.submit(
             None,
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_wait() -> std::io::Result<()> {
-        let event_loop = EventLoopImpl::default().start()?;
+        let event_loop = EventLoopImpl::default();
         let task_name = uuid::Uuid::new_v4().to_string();
         _ = event_loop.submit(None, |_| panic!("test panic, just ignore it"), None);
         let result = event_loop.submit_and_wait(
