@@ -429,13 +429,10 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                         //让出CPU给下一个协程
                         std::cmp::Ordering::Less => suspender.suspend(),
                         //减少CPU在N个无任务的协程中空轮询
-                        std::cmp::Ordering::Equal => {
+                        std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
                             #[allow(box_pointers)]
                             pool.blocker.block(Duration::from_millis(1));
                             pool.pop_fail_times.store(0, Ordering::Release);
-                        }
-                        std::cmp::Ordering::Greater => {
-                            unreachable!("grow should never execute to here");
                         }
                     }
                 }
