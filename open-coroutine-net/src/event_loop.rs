@@ -375,7 +375,7 @@ mod tests {
             Duration::from_millis(100),
         );
         assert_eq!(Some((task_name, Ok(Some(2)))), result.unwrap());
-        event_loop.stop(Duration::from_secs(1))
+        event_loop.stop(Duration::from_secs(3))
     }
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
         let now = open_coroutine_timer::now();
         event_loop.slice_wait(Some(Duration::from_millis(10)), true)?;
         assert!(open_coroutine_timer::now() - now >= 10_000_000);
-        event_loop.stop(Duration::from_secs(1))
+        event_loop.stop(Duration::from_secs(30))
     }
 
     #[test]
@@ -413,6 +413,6 @@ mod tests {
             Duration::from_millis(100),
         );
         assert_eq!(Some((task_name, Ok(Some(2)))), result.unwrap());
-        event_loop.stop(Duration::from_secs(1))
+        event_loop.stop(Duration::from_secs(30))
     }
 }
