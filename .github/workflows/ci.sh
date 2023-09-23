@@ -31,5 +31,5 @@ cd "${PROJECT_DIR}"/open-coroutine-net
 "${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring
 "${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring --release
 
-#"${CARGO}" test --target "${TARGET}" --no-default-features --features compatible
-#"${CARGO}" test --target "${TARGET}" --no-default-features --features compatible --release
+"${CARGO}" test --target "${TARGET}" --no-default-features --features compatible
+"${CARGO}" test --target "${TARGET}" --no-default-features --features compatible --release

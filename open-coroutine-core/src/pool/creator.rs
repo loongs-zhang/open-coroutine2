@@ -10,13 +10,13 @@ pub(crate) struct CoroutineCreator {}
 impl Listener for CoroutineCreator {
     fn on_suspend(&self, _: u64, _: &SchedulableCoroutine) {
         if let Some(pool) = CoroutinePoolImpl::current() {
-            _ = pool.grow(true);
+            _ = pool.grow(false);
         }
     }
 
     fn on_syscall(&self, _: u64, _: &SchedulableCoroutine, _: Syscall, _: SyscallState) {
         if let Some(pool) = CoroutinePoolImpl::current() {
-            _ = pool.grow(true);
+            _ = pool.grow(false);
         }
     }
 
