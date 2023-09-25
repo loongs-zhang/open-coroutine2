@@ -12,7 +12,7 @@ use std::ffi::c_void;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
 use std::panic::{RefUnwindSafe, UnwindSafe};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -21,27 +21,8 @@ pub mod task;
 
 mod creator;
 
-/// The `CoroutinePool` abstraction.
-pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'p> {
-    /// Create a new `CoroutinePool` instance.
-    fn new(
-        name: String,
-        stack_size: usize,
-        min_size: usize,
-        max_size: usize,
-        keep_alive_time: u64,
-        blocker: impl Blocker + 'p,
-    ) -> Self
-    where
-        Self: Sized;
-
-    /// Extension points within the open-coroutine framework.
-    fn init(&mut self);
-
-    /// Set the default stack stack size for the coroutines in this pool.
-    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
-    fn set_stack_size(&self, stack_size: usize);
-
+/// The `Pool` abstraction.
+pub trait Pool: Debug + Default + RefUnwindSafe + Named {
     /// Set the minimum number of coroutines to run in this pool.
     fn set_min_size(&self, min_size: usize);
 
@@ -65,6 +46,36 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
     /// Returns in `ns` units.
     fn get_keep_alive_time(&self) -> u64;
 
+    /// Returns `true` if the task queue is empty.
+    fn is_empty(&self) -> bool {
+        self.size() == 0
+    }
+
+    /// Returns the number of tasks owned by this pool.
+    fn size(&self) -> usize;
+}
+
+/// The `CoroutinePool` abstraction.
+pub trait CoroutinePool<'p>: Current<'p> + Pool {
+    /// Create a new `CoroutinePool` instance.
+    fn new(
+        name: String,
+        stack_size: usize,
+        min_size: usize,
+        max_size: usize,
+        keep_alive_time: u64,
+        blocker: impl Blocker + 'p,
+    ) -> Self
+    where
+        Self: Sized;
+
+    /// Extension points within the open-coroutine framework.
+    fn init(&mut self);
+
+    /// Set the default stack stack size for the coroutines in this pool.
+    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
+    fn set_stack_size(&self, stack_size: usize);
+
     /// Submit a new task to this pool.
     ///
     /// Allow multiple threads to concurrently submit task to the pool,
@@ -82,6 +93,15 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
         ))
     }
 
+    /// Resume a coroutine from the system call table to the ready queue,
+    /// it's generally only required for framework level crates.
+    ///
+    /// If we can't find the coroutine, nothing happens.
+    ///
+    /// # Errors
+    /// if change to ready fails.
+    fn try_resume(&self, co_name: &'p str) -> std::io::Result<()>;
+
     /// Submit new task to this pool.
     ///
     /// Allow multiple threads to concurrently submit task to the pool,
@@ -91,14 +111,6 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
     /// pop a task
     fn pop(&self) -> Option<TaskImpl>;
 
-    /// Returns `true` if the task queue is empty.
-    fn is_empty(&self) -> bool {
-        self.size() == 0
-    }
-
-    /// Returns the number of tasks owned by this pool.
-    fn size(&self) -> usize;
-
     /// Attempt to run a task in current coroutine or thread.
     fn try_run(&self) -> Option<()>;
 
@@ -106,7 +118,7 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
     ///
     /// # Errors
     /// if create failed.
-    fn grow(&self) -> std::io::Result<()>;
+    fn grow(&self, should_grow: bool) -> std::io::Result<()>;
 
     /// Schedule the tasks.
     ///
@@ -172,11 +184,18 @@ pub trait CoroutinePool<'p>: Debug + Default + RefUnwindSafe + Named + Current<'
         let task_name = self.submit(name, func, param);
         self.wait_result(task_name, wait_time)
     }
+
+    /// Stop this pool.
+    ///
+    /// # Errors
+    /// if timeout.
+    fn stop(&mut self, wait_time: Duration) -> std::io::Result<()>;
 }
 
 #[allow(missing_docs, box_pointers, dead_code)]
 #[derive(Debug)]
 pub struct CoroutinePoolImpl<'p> {
+    run: AtomicBool,
     //任务队列
     task_queue: Injector<TaskImpl<'p>>,
     //工作协程组
@@ -207,7 +226,7 @@ impl Drop for CoroutinePoolImpl<'_> {
                 self.get_running_size(),
                 "There are still tasks in progress !"
             );
-            assert!(self.is_empty(), "There are still tasks to be carried out !");
+            assert_eq!(0, self.size(), "There are still tasks to be carried out !");
         }
     }
 }
@@ -222,7 +241,7 @@ impl Named for CoroutinePoolImpl<'_> {
 
 impl Default for CoroutinePoolImpl<'_> {
     fn default() -> Self {
-        let blocker = crate::blocker::SleepBlocker {};
+        let blocker = crate::blocker::SleepBlocker::default();
         Self::new(
             uuid::Uuid::new_v4().to_string(),
             crate::coroutine::DEFAULT_STACK_SIZE,
@@ -277,44 +296,7 @@ impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
     }
 }
 
-impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
-    #[allow(box_pointers)]
-    fn new(
-        name: String,
-        stack_size: usize,
-        min_size: usize,
-        max_size: usize,
-        keep_alive_time: u64,
-        blocker: impl Blocker + 'p,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let mut pool = CoroutinePoolImpl {
-            workers: SchedulerImpl::new(name, stack_size),
-            running: AtomicUsize::new(0),
-            pop_fail_times: AtomicUsize::new(0),
-            min_size: AtomicUsize::new(min_size),
-            max_size: AtomicUsize::new(max_size),
-            task_queue: Injector::default(),
-            keep_alive_time: AtomicU64::new(keep_alive_time),
-            blocker: Box::new(blocker),
-            results: DashMap::new(),
-            waits: DashMap::new(),
-        };
-        pool.init();
-        pool
-    }
-
-    #[allow(box_pointers)]
-    fn init(&mut self) {
-        self.workers.add_listener(CoroutineCreator {});
-    }
-
-    fn set_stack_size(&self, stack_size: usize) {
-        self.workers.set_stack_size(stack_size);
-    }
-
+impl Pool for CoroutinePoolImpl<'_> {
     fn set_min_size(&self, min_size: usize) {
         self.min_size.store(min_size, Ordering::Release);
     }
@@ -344,6 +326,54 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         self.keep_alive_time.load(Ordering::Acquire)
     }
 
+    fn size(&self) -> usize {
+        self.task_queue.len()
+    }
+}
+
+impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
+    #[allow(box_pointers)]
+    fn new(
+        name: String,
+        stack_size: usize,
+        min_size: usize,
+        max_size: usize,
+        keep_alive_time: u64,
+        blocker: impl Blocker + 'p,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let mut pool = CoroutinePoolImpl {
+            run: AtomicBool::new(true),
+            workers: SchedulerImpl::new(name, stack_size),
+            running: AtomicUsize::new(0),
+            pop_fail_times: AtomicUsize::new(0),
+            min_size: AtomicUsize::new(min_size),
+            max_size: AtomicUsize::new(max_size),
+            task_queue: Injector::default(),
+            keep_alive_time: AtomicU64::new(keep_alive_time),
+            blocker: Box::new(blocker),
+            results: DashMap::new(),
+            waits: DashMap::new(),
+        };
+        pool.init();
+        pool
+    }
+
+    #[allow(box_pointers)]
+    fn init(&mut self) {
+        self.workers.add_listener(CoroutineCreator::default());
+    }
+
+    fn set_stack_size(&self, stack_size: usize) {
+        self.workers.set_stack_size(stack_size);
+    }
+
+    fn try_resume(&self, co_name: &'p str) -> std::io::Result<()> {
+        self.workers.try_resume(co_name)
+    }
+
     #[allow(box_pointers)]
     fn submit_raw(&self, task: TaskImpl<'p>) -> &str {
         let task_name = Box::leak(Box::from(task.get_name()));
@@ -365,10 +395,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         }
     }
 
-    fn size(&self) -> usize {
-        self.task_queue.len()
-    }
-
     #[allow(box_pointers)]
     fn try_run(&self) -> Option<()> {
         self.pop().map(|task| {
@@ -377,9 +403,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                 self.results.insert(task_name.clone(), result).is_none(),
                 "The previous result was not retrieved in a timely manner"
             );
-            _ = self
-                .workers
-                .try_resume(Box::leak(Box::from(task_name.clone())));
             if let Some(arc) = self.waits.get(&*task_name) {
                 let (lock, cvar) = &**arc;
                 let mut pending = lock.lock().unwrap();
@@ -390,11 +413,8 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         })
     }
 
-    fn grow(&self) -> std::io::Result<()> {
-        if self.is_empty() {
-            return Ok(());
-        }
-        if self.get_running_size() >= self.get_max_size() {
+    fn grow(&self, should_grow: bool) -> std::io::Result<()> {
+        if !should_grow || self.is_empty() || self.get_running_size() >= self.get_max_size() {
             return Ok(());
         }
         let create_time = open_coroutine_timer::now();
@@ -409,6 +429,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                     if open_coroutine_timer::now().saturating_sub(create_time)
                         >= pool.get_keep_alive_time()
                         && running > pool.get_min_size()
+                        || !pool.run.load(Ordering::Acquire)
                     {
                         //回收worker协程
                         _ = pool.running.fetch_sub(1, Ordering::Release);
@@ -419,13 +440,10 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                         //让出CPU给下一个协程
                         std::cmp::Ordering::Less => suspender.suspend(),
                         //减少CPU在N个无任务的协程中空轮询
-                        std::cmp::Ordering::Equal => {
+                        std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
                             #[allow(box_pointers)]
                             pool.blocker.block(Duration::from_millis(1));
                             pool.pop_fail_times.store(0, Ordering::Release);
-                        }
-                        std::cmp::Ordering::Greater => {
-                            unreachable!("should never execute to here");
                         }
                     }
                 }
@@ -438,7 +456,7 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
 
     fn try_timeout_schedule(&mut self, timeout_time: u64) -> std::io::Result<u64> {
         Self::init_current(self);
-        self.grow()?;
+        self.grow(self.run.load(Ordering::Acquire))?;
         let result = self.workers.try_timeout_schedule(timeout_time);
         Self::clean_current();
         result
@@ -484,6 +502,28 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         assert!(self.waits.remove(key).is_some());
         Ok(self.try_get_result(key))
     }
+
+    fn stop(&mut self, wait_time: Duration) -> std::io::Result<()> {
+        if self
+            .run
+            .compare_exchange(true, false, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let mut left = wait_time;
+        loop {
+            let left_time = self.try_timed_schedule(left)?;
+            if self.is_empty() && self.get_running_size() == 0 {
+                return Ok(());
+            }
+            if left_time == 0 {
+                self.run.store(true, Ordering::Release);
+                return Err(Error::new(ErrorKind::Other, "stop timeout !"));
+            }
+            left = Duration::from_nanos(left_time);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -502,7 +542,7 @@ mod tests {
             assert!(const_ref.is_empty());
             _ = const_ref.submit(
                 Some(String::from("test_panic")),
-                |_| panic!("message"),
+                |_| panic!("test panic, just ignore it"),
                 None,
             );
             assert!(!const_ref.is_empty());
@@ -522,7 +562,10 @@ mod tests {
         }
         let const_ref = &pool;
         assert_eq!(
-            Some((String::from("test_panic"), Err("message"))),
+            Some((
+                String::from("test_panic"),
+                Err("test panic, just ignore it")
+            )),
             const_ref.try_get_result("test_panic")
         );
         assert_eq!(
@@ -540,7 +583,7 @@ mod tests {
             0,
             65536,
             0,
-            crate::blocker::SleepBlocker {},
+            crate::blocker::SleepBlocker::default(),
         );
         _ = pool.submit(
             None,
@@ -564,7 +607,7 @@ mod tests {
                     0,
                     65536,
                     0,
-                    crate::blocker::SleepBlocker {},
+                    crate::blocker::SleepBlocker::default(),
                 );
                 _ = pool.submit(
                     None,
@@ -707,5 +750,22 @@ mod tests {
             None,
             Duration::from_secs(1),
         );
+    }
+
+    #[test]
+    fn test_stop() -> std::io::Result<()> {
+        let mut pool = CoroutinePoolImpl::default();
+        pool.set_max_size(1);
+        _ = pool.submit(None, |_| panic!("test panic, just ignore it"), None);
+        _ = pool.submit(
+            None,
+            |_| {
+                println!("2");
+                Some(2)
+            },
+            None,
+        );
+        pool.try_schedule()?;
+        pool.stop(Duration::from_secs(1))
     }
 }
