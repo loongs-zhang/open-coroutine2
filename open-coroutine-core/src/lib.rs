@@ -48,6 +48,10 @@
 #[allow(missing_docs)]
 pub mod log;
 
+/// Get the kernel version.
+#[cfg(target_os = "linux")]
+pub mod version;
+
 /// Coroutine abstraction and impl.
 pub mod coroutine;
 

@@ -21,7 +21,6 @@ cfg_if::cfg_if! {
     }
 }
 
-#[allow(box_pointers)]
 pub struct CoroutineImpl<'c, Param, Yield, Return>
 where
     Param: UnwindSafe,
@@ -40,7 +39,6 @@ where
     Yield: Copy + Eq + PartialEq + UnwindSafe,
     Return: Copy + Eq + PartialEq + UnwindSafe,
 {
-    #[allow(box_pointers)]
     fn drop(&mut self) {
         //for test_yield case
         if self.inner.started() && !self.inner.done() {
@@ -158,7 +156,6 @@ where
     type Yield = Yield;
     type Return = Return;
 
-    #[allow(box_pointers)]
     fn new<F>(name: String, f: F, stack_size: usize) -> std::io::Result<Self>
     where
         F: FnOnce(
@@ -175,6 +172,7 @@ where
         let inner = ScopedCoroutine::with_stack(stack, move |y, p| {
             let suspender = SuspenderImpl(y);
             SuspenderImpl::<Param, Yield>::init_current(&suspender);
+            #[allow(box_pointers)]
             let r = std::panic::catch_unwind(AssertUnwindSafe(|| f(&suspender, p))).map_err(|e| {
                 let message = *e
                     .downcast_ref::<&'static str>()
@@ -203,7 +201,6 @@ where
         Self::setup_trap_handler();
         self.running()?;
         Self::init_current(self);
-        #[allow(box_pointers)]
         let r = match self.inner.resume(arg) {
             CoroutineResult::Yield(y) => {
                 let current = self.state();
@@ -226,7 +223,6 @@ where
                     }
                 }
             }
-            #[allow(box_pointers)]
             CoroutineResult::Return(result) => {
                 if let Ok(returns) = result {
                     self.complete(returns)?;
@@ -461,7 +457,6 @@ where
                             compile_error!("Unsupported platform");
                         }
                     }
-                    #[allow(box_pointers)]
                     if let Some(co) = Self::current() {
                         let handler = co.inner.trap_handler();
                         assert!(handler.stack_ptr_in_bounds(sp));
@@ -578,7 +573,6 @@ where
                     _ => return 0, // EXCEPTION_CONTINUE_SEARCH
                 }
 
-                #[allow(box_pointers)]
                 if let Some(co) = Self::current() {
                     cfg_if::cfg_if! {
                         if #[cfg(target_arch = "x86_64")] {
