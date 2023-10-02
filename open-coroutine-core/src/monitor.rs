@@ -2,7 +2,7 @@ use crate::blocker::{Blocker, SleepBlocker};
 use crate::coroutine::constants::CoroutineState;
 use crate::coroutine::suspender::SimpleSuspender;
 use crate::coroutine::{Coroutine, Current, StateMachine};
-use crate::pool::{CoroutinePool, CoroutinePoolImpl};
+use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
 use crate::scheduler::{Listener, SchedulableCoroutine, SchedulableSuspender};
 use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
@@ -129,8 +129,9 @@ impl Monitor for MonitorImpl {
                         _ = core_affinity::set_for_current(core_affinity::CoreId {
                             id: monitor.cpu,
                         });
-                        let mut pool = CoroutinePoolImpl::new(
+                        let pool = CoroutinePoolImpl::new(
                             String::from("open-coroutine-monitor"),
+                            monitor.cpu,
                             crate::coroutine::DEFAULT_STACK_SIZE,
                             1,
                             1,
@@ -258,7 +259,6 @@ impl Listener for MonitorListener {
 mod tests {
     use super::*;
     use crate::blocker::DelayBlocker;
-    use std::os::unix::prelude::JoinHandleExt;
 
     #[test]
     fn change_blocker() {
@@ -268,14 +268,15 @@ mod tests {
         assert_eq!("DelayBlocker", previous.get_name());
     }
 
-    static SIGNALED: AtomicBool = AtomicBool::new(false);
-
-    extern "C" fn handler(_: libc::c_int) {
-        SIGNALED.store(true, Ordering::Relaxed);
-    }
-
+    #[cfg(not(target_arch = "riscv64"))]
     #[test]
     fn test() -> std::io::Result<()> {
+        use std::os::unix::prelude::JoinHandleExt;
+
+        static SIGNALED: AtomicBool = AtomicBool::new(false);
+        extern "C" fn handler(_: libc::c_int) {
+            SIGNALED.store(true, Ordering::Relaxed);
+        }
         let mut set = SigSet::empty();
         set.add(Signal::SIGUSR1);
         let sa = SigAction::new(SigHandler::Handler(handler), SaFlags::SA_RESTART, set);

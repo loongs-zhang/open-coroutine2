@@ -20,11 +20,22 @@ cd "${PROJECT_DIR}"/open-coroutine-core
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei --release
 
-"${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule
+if [ "${TARGET}" != "riscv64gc-unknown-linux-gnu" ]; then
+    "${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule
+fi
+
 "${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule --release
 
-# todo io_uring
-#if [ "${OS}" = "ubuntu-latest" ]; then
-#    "${CARGO}" test $CARGO_TEST_FLAGS --target "${TARGET}" --all-targets --features asm-unwind
-#    "${CARGO}" test $CARGO_TEST_FLAGS --target "${TARGET}" --all-targets --features asm-unwind --release
-#fi
+# test open-coroutine-net mod
+cd "${PROJECT_DIR}"/open-coroutine-net
+"${CARGO}" test --target "${TARGET}" --no-default-features
+"${CARGO}" test --target "${TARGET}" --no-default-features --release
+
+# only test io_uring in x86_64
+if [ "${TARGET}" = "x86_64-unknown-linux-gnu" ]; then
+    "${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring
+    "${CARGO}" test --target "${TARGET}" --no-default-features --features io_uring --release
+
+    "${CARGO}" test --target "${TARGET}" --no-default-features --features compatible --release
+fi
+

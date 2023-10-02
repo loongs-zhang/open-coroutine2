@@ -14,9 +14,12 @@ pub trait Blocker: Debug + Named {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct DelayBlocker {}
 
+/// const `DELAY_BLOCKER_NAME`.
+pub const DELAY_BLOCKER_NAME: &str = "DelayBlocker";
+
 impl Named for DelayBlocker {
     fn get_name(&self) -> &str {
-        "DelayBlocker"
+        DELAY_BLOCKER_NAME
     }
 }
 
@@ -32,9 +35,12 @@ impl Blocker for DelayBlocker {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct SleepBlocker {}
 
+/// const `SLEEP_BLOCKER_NAME`.
+pub const SLEEP_BLOCKER_NAME: &str = "SleepBlocker";
+
 impl Named for SleepBlocker {
     fn get_name(&self) -> &str {
-        "SleepBlocker"
+        SLEEP_BLOCKER_NAME
     }
 }
 
