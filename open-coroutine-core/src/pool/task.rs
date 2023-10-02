@@ -5,7 +5,7 @@ use std::panic::UnwindSafe;
 
 /// A trait implemented for describing task.
 /// Note: the param and the result is raw pointer.
-pub trait Task<'t>: Named {
+pub trait Task<'t>: Named + UnwindSafe {
     /// Create a new `Task` instance.
     fn new(
         name: String,
@@ -33,6 +33,8 @@ pub struct TaskImpl<'t> {
     func: Box<dyn FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 't>,
     param: Cell<Option<usize>>,
 }
+
+impl UnwindSafe for TaskImpl<'_> {}
 
 impl Debug for TaskImpl<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
