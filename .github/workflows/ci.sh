@@ -28,3 +28,12 @@ if [ "${TARGET}" != "riscv64gc-unknown-linux-gnu" ]; then
 fi
 
 "${CARGO}" test --target "${TARGET}" --no-default-features --features preemptive-schedule --release
+
+# test examples
+cd "${PROJECT_DIR}"/examples
+"${CARGO}" run --example sleep_not_co --release
+"${CARGO}" run --example sleep_co --release
+"${CARGO}" run --example socket_not_co --release
+"${CARGO}" run --example socket_co_server --release
+"${CARGO}" run --example socket_co_client --release
+"${CARGO}" run --example socket_co --release

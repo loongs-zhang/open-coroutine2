@@ -159,6 +159,9 @@ impl<T> TimerList<T> {
     /// Returns the number of elements in the deque.
     #[must_use]
     pub fn len(&self) -> usize {
+        if self.0.is_empty() {
+            return 0;
+        }
         let mut total = 0;
         for entry in self.0.values() {
             total += entry.len();
@@ -205,6 +208,9 @@ impl<T> TimerList<T> {
     /// Returns `true` if the deque is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
+        if self.0.is_empty() {
+            return true;
+        }
         for entry in self.0.values() {
             if !entry.is_empty() {
                 return false;
