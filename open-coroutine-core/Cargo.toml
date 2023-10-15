@@ -66,9 +66,12 @@ preemptive-schedule = ["korosensei"]
 # Provide net API abstraction and implementation.
 net = ["korosensei", "num_cpus", "once_cell", "crossbeam-utils", "polling"]
 
+# Provide syscall implementation.
+syscall = ["net"]
+
 # Print some help log.
 # Enable for default.
 logs = ["log", "simplelog"]
 
 # Enable all features.
-full = ["preemptive-schedule", "net", "logs"]
+full = ["preemptive-schedule", "syscall", "logs"]

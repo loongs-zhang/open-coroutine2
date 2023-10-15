@@ -80,3 +80,16 @@ pub mod monitor;
 )]
 #[cfg(feature = "net")]
 pub mod net;
+
+/// Syscall abstraction and impl.
+#[allow(
+    unused_imports,
+    clippy::missing_errors_doc,
+    clippy::too_many_arguments,
+    clippy::similar_names,
+    missing_docs,
+    clippy::cast_sign_loss,
+    clippy::not_unsafe_ptr_arg_deref
+)]
+#[cfg(all(unix, feature = "net"))]
+pub mod syscall;
