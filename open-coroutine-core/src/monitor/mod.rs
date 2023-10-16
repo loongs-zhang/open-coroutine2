@@ -3,9 +3,9 @@ use crate::coroutine::constants::CoroutineState;
 use crate::coroutine::suspender::SimpleSuspender;
 #[cfg(feature = "logs")]
 use crate::coroutine::Named;
-use crate::coroutine::{Coroutine, Current, StateMachine};
+use crate::coroutine::{Current, StateMachine};
 use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
-use crate::scheduler::{Listener, SchedulableCoroutine, SchedulableSuspender};
+use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender};
 use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use open_coroutine_timer::TimerList;
@@ -18,12 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-struct TaskNode {
-    timestamp: u64,
-    pthread: Pthread,
-    coroutine: *const c_void,
-}
+pub(crate) mod creator;
 
 /// A trait implemented for sending signals.
 pub trait Monitor {
@@ -51,6 +46,13 @@ pub trait Monitor {
 
     /// Remove the task from this monitor.
     fn remove(&self, timestamp: u64, coroutine: &SchedulableCoroutine);
+}
+
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+struct TaskNode {
+    timestamp: u64,
+    pthread: Pthread,
+    coroutine: *const c_void,
 }
 
 #[allow(missing_docs, box_pointers)]
@@ -231,40 +233,6 @@ impl Monitor for MonitorImpl {
             pthread: pthread_self(),
             coroutine: (coroutine as *const SchedulableCoroutine).cast::<c_void>(),
         });
-    }
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct MonitorListener {}
-
-const MONITOR_TIMESTAMP: &str = "MONITOR_TIMESTAMP";
-
-impl Listener for MonitorListener {
-    fn on_resume(&self, timeout_time: u64, coroutine: &SchedulableCoroutine) {
-        let timestamp =
-            open_coroutine_timer::get_timeout_time(Duration::from_millis(10)).min(timeout_time);
-        _ = coroutine.local().put(MONITOR_TIMESTAMP, timestamp);
-        MonitorImpl::get_instance()
-            .submit(timestamp, coroutine)
-            .expect("Submit task to monitor failed !");
-    }
-
-    fn on_suspend(&self, _: u64, coroutine: &SchedulableCoroutine) {
-        if let Some(timestamp) = coroutine.local().get(MONITOR_TIMESTAMP) {
-            MonitorImpl::get_instance().remove(*timestamp, coroutine);
-        }
-    }
-
-    fn on_complete(&self, _: u64, coroutine: &SchedulableCoroutine) {
-        if let Some(timestamp) = coroutine.local().get(MONITOR_TIMESTAMP) {
-            MonitorImpl::get_instance().remove(*timestamp, coroutine);
-        }
-    }
-
-    fn on_error(&self, _: u64, coroutine: &SchedulableCoroutine, _: &str) {
-        if let Some(timestamp) = coroutine.local().get(MONITOR_TIMESTAMP) {
-            MonitorImpl::get_instance().remove(*timestamp, coroutine);
-        }
     }
 }
 

@@ -1,17 +1,21 @@
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::coroutine::constants::{CoroutineState, SyscallState};
 use crate::coroutine::suspender::{Suspender, SuspenderImpl};
 use crate::coroutine::{Coroutine, CoroutineImpl, Current, Named, SimpleCoroutine, StateMachine};
+use crate::scheduler::listener::Listener;
 use dashmap::DashMap;
 use open_coroutine_queue::LocalQueue;
 use open_coroutine_timer::TimerList;
-use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::ffi::c_void;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
 use std::panic::UnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+
+/// Listener abstraction and impl.
+pub mod listener;
+
+mod current;
 
 /// A type for Scheduler.
 pub type SchedulableCoroutine<'s> = CoroutineImpl<'s, (), (), ()>;
@@ -35,40 +39,6 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     ///
     /// # Errors
     /// if create coroutine fails.
-    ///
-    /// # Examples
-    /// ```
-    /// use std::time::Duration;
-    /// use open_coroutine_core::coroutine::constants::{CoroutineState, Syscall, SyscallState};
-    /// use open_coroutine_core::coroutine::{Current, StateMachine};
-    /// use open_coroutine_core::coroutine::suspender::SimpleSuspender;
-    /// use open_coroutine_core::scheduler::{SchedulableCoroutine, SchedulableSuspender, Scheduler, SchedulerImpl};
-    ///
-    /// let mut scheduler = SchedulerImpl::default();
-    /// scheduler.submit( |_, _| {
-    ///     println!("1");
-    ///     if let Some(coroutine) = SchedulableCoroutine::current() {
-    ///         let timeout_time = open_coroutine_timer::get_timeout_time(Duration::from_millis(10));
-    ///         coroutine.syscall((), Syscall::nanosleep, SyscallState::Suspend(timeout_time))
-    ///             .expect("change to syscall state failed !");
-    ///         if let Some(suspender) = SchedulableSuspender::current() {
-    ///             suspender.suspend();
-    ///         }
-    ///         match coroutine.state() {
-    ///             CoroutineState::SystemCall(_, Syscall::nanosleep, state) => match state {
-    ///                 SyscallState::Timeout => println!("syscall nanosleep finished !"),
-    ///                 _ => unreachable!("should never execute to here"),
-    ///             },
-    ///             _ => unreachable!("should never execute to here"),
-    ///         };
-    ///         coroutine.syscall_resume().expect("change to running state failed !");
-    ///     }
-    ///     println!("2");
-    /// }, None).expect("submit failed");
-    /// scheduler.try_schedule().expect("schedule failed");
-    /// std::thread::sleep(Duration::from_millis(10));
-    /// scheduler.try_schedule().expect("schedule failed");
-    /// ```
     fn submit(
         &self,
         f: impl FnOnce(&dyn Suspender<Resume = (), Yield = ()>, ()) + UnwindSafe + 's,
@@ -134,33 +104,6 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
 
     /// Add a raw listener to this scheduler.
     fn add_raw_listener(&mut self, listener: Box<dyn Listener + 's>);
-}
-
-/// A trait implemented for schedulers, mainly used for monitoring.
-pub trait Listener: Debug {
-    /// callback when a coroutine is created.
-    /// This will be called by `Scheduler` when a coroutine is created.
-    fn on_create(&self, _: &SchedulableCoroutine) {}
-
-    /// callback before resuming the coroutine.
-    /// This will be called by `Scheduler` before resuming the coroutine.
-    fn on_resume(&self, _: u64, _: &SchedulableCoroutine) {}
-
-    /// callback when a coroutine is suspended.
-    /// This will be called by `Scheduler` when a coroutine is suspended.
-    fn on_suspend(&self, _: u64, _: &SchedulableCoroutine) {}
-
-    /// callback when a coroutine enters syscall.
-    /// This will be called by `Scheduler` when a coroutine enters syscall.
-    fn on_syscall(&self, _: u64, _: &SchedulableCoroutine, _: Syscall, _: SyscallState) {}
-
-    /// callback when a coroutine is completed.
-    /// This will be called by `Scheduler` when a coroutine is completed.
-    fn on_complete(&self, _: u64, _: &SchedulableCoroutine) {}
-
-    /// callback when a coroutine is panic.
-    /// This will be called by `Scheduler` when a coroutine is panic.
-    fn on_error(&self, _: u64, _: &SchedulableCoroutine, _: &str) {}
 }
 
 #[allow(missing_docs, box_pointers)]
@@ -288,86 +231,6 @@ impl PartialEq for SchedulerImpl<'_> {
     }
 }
 
-thread_local! {
-    static SCHEDULER: RefCell<VecDeque<*const c_void>> = RefCell::new(VecDeque::new());
-}
-
-impl<'s> Current<'s> for SchedulerImpl<'s> {
-    #[allow(clippy::ptr_as_ptr)]
-    fn init_current(current: &Self)
-    where
-        Self: Sized,
-    {
-        SCHEDULER.with(|s| {
-            s.borrow_mut()
-                .push_front(current as *const _ as *const c_void);
-        });
-    }
-
-    fn current() -> Option<&'s Self>
-    where
-        Self: Sized,
-    {
-        SCHEDULER.with(|s| {
-            s.borrow()
-                .front()
-                .map(|ptr| unsafe { &*(*ptr).cast::<SchedulerImpl<'s>>() })
-        })
-    }
-
-    fn clean_current()
-    where
-        Self: Sized,
-    {
-        SCHEDULER.with(|s| _ = s.borrow_mut().pop_front());
-    }
-}
-
-#[allow(box_pointers)]
-impl Listener for SchedulerImpl<'_> {
-    fn on_create(&self, coroutine: &SchedulableCoroutine) {
-        for listener in &self.listeners {
-            listener.on_create(coroutine);
-        }
-    }
-
-    fn on_resume(&self, timeout_time: u64, coroutine: &SchedulableCoroutine) {
-        for listener in &self.listeners {
-            listener.on_resume(timeout_time, coroutine);
-        }
-    }
-
-    fn on_suspend(&self, timeout_time: u64, coroutine: &SchedulableCoroutine) {
-        for listener in &self.listeners {
-            listener.on_suspend(timeout_time, coroutine);
-        }
-    }
-
-    fn on_syscall(
-        &self,
-        timeout_time: u64,
-        coroutine: &SchedulableCoroutine,
-        syscall: Syscall,
-        state: SyscallState,
-    ) {
-        for listener in &self.listeners {
-            listener.on_syscall(timeout_time, coroutine, syscall, state);
-        }
-    }
-
-    fn on_complete(&self, timeout_time: u64, coroutine: &SchedulableCoroutine) {
-        for listener in &self.listeners {
-            listener.on_complete(timeout_time, coroutine);
-        }
-    }
-
-    fn on_error(&self, timeout_time: u64, coroutine: &SchedulableCoroutine, message: &str) {
-        for listener in &self.listeners {
-            listener.on_error(timeout_time, coroutine, message);
-        }
-    }
-}
-
 impl Named for SchedulerImpl<'_> {
     fn get_name(&self) -> &str {
         &self.name
@@ -377,13 +240,46 @@ impl Named for SchedulerImpl<'_> {
 impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     fn init(&mut self) {
         #[cfg(all(unix, feature = "preemptive-schedule"))]
-        self.add_listener(crate::monitor::MonitorListener::default());
+        self.add_listener(crate::monitor::creator::MonitorTaskCreator::default());
     }
 
     fn set_stack_size(&self, stack_size: usize) {
         self.stack_size.store(stack_size, Ordering::Release);
     }
 
+    /// # Examples
+    /// ```
+    /// use std::time::Duration;
+    /// use open_coroutine_core::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+    /// use open_coroutine_core::coroutine::{Current, StateMachine};
+    /// use open_coroutine_core::coroutine::suspender::SimpleSuspender;
+    /// use open_coroutine_core::scheduler::{SchedulableCoroutine, SchedulableSuspender, Scheduler, SchedulerImpl};
+    ///
+    /// let mut scheduler = SchedulerImpl::default();
+    /// scheduler.submit( |_, _| {
+    ///     println!("1");
+    ///     if let Some(coroutine) = SchedulableCoroutine::current() {
+    ///         let timeout_time = open_coroutine_timer::get_timeout_time(Duration::from_millis(10));
+    ///         coroutine.syscall((), Syscall::nanosleep, SyscallState::Suspend(timeout_time))
+    ///             .expect("change to syscall state failed !");
+    ///         if let Some(suspender) = SchedulableSuspender::current() {
+    ///             suspender.suspend();
+    ///         }
+    ///         match coroutine.state() {
+    ///             CoroutineState::SystemCall(_, Syscall::nanosleep, state) => match state {
+    ///                 SyscallState::Timeout => println!("syscall nanosleep finished !"),
+    ///                 _ => unreachable!("should never execute to here"),
+    ///             },
+    ///             _ => unreachable!("should never execute to here"),
+    ///         };
+    ///         coroutine.syscall_resume().expect("change to running state failed !");
+    ///     }
+    ///     println!("2");
+    /// }, None).expect("submit failed");
+    /// scheduler.try_schedule().expect("schedule failed");
+    /// std::thread::sleep(Duration::from_millis(10));
+    /// scheduler.try_schedule().expect("schedule failed");
+    /// ```
     fn submit(
         &self,
         f: impl FnOnce(&dyn Suspender<Resume = (), Yield = ()>, ()) + UnwindSafe + 's,
@@ -500,46 +396,6 @@ mod tests {
     }
 
     #[test]
-    fn test_current() -> std::io::Result<()> {
-        let parent_name = "parent";
-        let mut scheduler = SchedulerImpl::new(
-            String::from(parent_name),
-            crate::coroutine::DEFAULT_STACK_SIZE,
-        );
-        scheduler.submit(
-            |_, _| {
-                assert!(SchedulableCoroutine::current().is_some());
-                assert!(SchedulableSuspender::current().is_some());
-                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
-                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
-
-                let child_name = "child";
-                let mut scheduler = SchedulerImpl::new(
-                    String::from(child_name),
-                    crate::coroutine::DEFAULT_STACK_SIZE,
-                );
-                scheduler
-                    .submit(
-                        |_, _| {
-                            assert!(SchedulableCoroutine::current().is_some());
-                            assert!(SchedulableSuspender::current().is_some());
-                            assert_eq!(child_name, SchedulerImpl::current().unwrap().get_name());
-                            assert_eq!(child_name, SchedulerImpl::current().unwrap().get_name());
-                        },
-                        None,
-                    )
-                    .unwrap();
-                scheduler.try_schedule().unwrap();
-
-                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
-                assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
-            },
-            None,
-        )?;
-        scheduler.try_schedule()
-    }
-
-    #[test]
     fn test_backtrace() -> std::io::Result<()> {
         let mut scheduler = SchedulerImpl::default();
         scheduler.submit(|_, _| (), None)?;
@@ -585,32 +441,6 @@ mod tests {
         scheduler.try_schedule()
     }
 
-    #[derive(Debug, Default)]
-    struct TestListener {}
-    impl Listener for TestListener {
-        fn on_create(&self, coroutine: &SchedulableCoroutine) {
-            println!("{:?}", coroutine);
-        }
-        fn on_resume(&self, _: u64, coroutine: &SchedulableCoroutine) {
-            println!("{:?}", coroutine);
-        }
-        fn on_complete(&self, _: u64, coroutine: &SchedulableCoroutine) {
-            println!("{:?}", coroutine);
-        }
-        fn on_error(&self, _: u64, coroutine: &SchedulableCoroutine, message: &str) {
-            println!("{:?} {message}", coroutine);
-        }
-    }
-
-    #[test]
-    fn test_listener() -> std::io::Result<()> {
-        let mut scheduler = SchedulerImpl::default();
-        scheduler.add_listener(TestListener::default());
-        scheduler.submit(|_, _| panic!("test panic, just ignore it"), None)?;
-        scheduler.submit(|_, _| println!("2"), None)?;
-        scheduler.try_schedule()
-    }
-
     #[cfg(feature = "korosensei")]
     #[test]
     fn test_trap() -> std::io::Result<()> {
@@ -630,6 +460,8 @@ mod tests {
     #[cfg(all(feature = "korosensei", not(debug_assertions)))]
     #[test]
     fn test_invalid_memory_reference() -> std::io::Result<()> {
+        use std::ffi::c_void;
+
         let mut scheduler = SchedulerImpl::default();
         scheduler.submit(
             |_, _| {
