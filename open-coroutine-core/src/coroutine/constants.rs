@@ -55,6 +55,7 @@ pub enum Syscall {
     sendmsg,
     fsync,
     renameat,
+    renameat2,
     mkdirat,
     openat,
 }

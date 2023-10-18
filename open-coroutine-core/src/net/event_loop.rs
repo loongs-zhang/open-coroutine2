@@ -2,22 +2,12 @@ use crate::blocker::Blocker;
 use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::suspender::SimpleDelaySuspender;
 use crate::coroutine::{Current, Named, StateMachine};
-#[cfg(all(target_os = "linux", feature = "io_uring"))]
-use crate::net::operator::Operator;
-#[cfg(all(target_os = "linux", feature = "io_uring"))]
-use crate::net::operator::OperatorImpl;
 use crate::net::selector::{Selector, SelectorImpl};
 use crate::pool::constants::PoolState;
 use crate::pool::join::JoinHandle;
 use crate::pool::task::TaskImpl;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
 use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender};
-#[cfg(all(target_os = "linux", feature = "io_uring"))]
-use dashmap::DashMap;
-#[cfg(all(target_os = "linux", feature = "io_uring"))]
-use libc::{
-    c_uint, epoll_event, iovec, mode_t, msghdr, off_t, size_t, sockaddr, socklen_t, ssize_t,
-};
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
@@ -25,6 +15,54 @@ use std::panic::RefUnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
+
+cfg_if::cfg_if! {
+    if #[cfg(all(target_os = "linux", feature = "io_uring"))] {
+        use crate::coroutine::suspender::SimpleSuspender;
+        use crate::net::operator::Operator;
+        use crate::net::operator::OperatorImpl;
+        use dashmap::DashMap;
+        use libc::{
+            c_uint, epoll_event, iovec, mode_t, msghdr, off_t, size_t, sockaddr, socklen_t, ssize_t,
+        };
+
+        macro_rules! wrap_result {
+            ( $self: expr, $syscall:ident, $($arg: expr),* $(,)* ) => {{
+                if let Some(coroutine) = SchedulableCoroutine::current() {
+                    let syscall = match coroutine.state() {
+                        CoroutineState::Running => Syscall::$syscall,
+                        CoroutineState::SystemCall((), syscall, _) => syscall,
+                        _ => unreachable!("should never execute to here"),
+                    };
+                    // prevent signal interruption
+                    coroutine
+                        .syscall((), syscall, SyscallState::Computing)
+                        .expect("change to syscall state failed !");
+                }
+                let user_data = token();
+                $self.operator
+                    .$syscall(user_data, $($arg, )*)
+                    .map(|()| {
+                        let arc = Arc::new((Mutex::new(None), Condvar::new()));
+                        assert!(
+                            $self.wait_table.insert(user_data, arc.clone()).is_none(),
+                            "The previous token was not retrieved in a timely manner"
+                        );
+                        if let Some(suspender) = SchedulableSuspender::current() {
+                            suspender.suspend();
+                            // the syscall is done after callback
+                        }
+                        let (lock, cvar) = &*arc;
+                        let syscall_result = cvar
+                            .wait_while(lock.lock().unwrap(), |&mut pending| pending.is_none())
+                            .unwrap()
+                            .unwrap();
+                        syscall_result as _
+                    })
+            }};
+        }
+    }
+}
 
 #[allow(trivial_numeric_casts, clippy::cast_possible_truncation)]
 fn token() -> usize {
@@ -403,28 +441,59 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
         self.wait_just(None)
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     fn wait_just(&self, timeout: Option<Duration>) -> std::io::Result<usize> {
         cfg_if::cfg_if! {
             if #[cfg(all(target_os = "linux", feature = "io_uring"))] {
                 let mut timeout = timeout;
                 if crate::net::operator::support_io_uring() {
+                    if let Some(coroutine) = SchedulableCoroutine::current() {
+                        match coroutine.state() {
+                            CoroutineState::SystemCall(
+                                (),
+                                syscall,
+                                SyscallState::Computing | SyscallState::Timeout,
+                            ) => {
+                                coroutine
+                                    .syscall((), syscall, SyscallState::Calling(Syscall::io_uring_enter))
+                                    .expect("change to syscall state failed !");
+                            }
+                            _ => unreachable!("wait should never execute to here"),
+                        };
+                    }
                     // use io_uring
-                    let mut result = self.operator.select(timeout)?;
-                    for cqe in &mut result.1 {
-                        let syscall_result = cqe.result();
-                        let token = cqe.user_data() as usize;
-                        // resolve completed read/write tasks
-                        if let Some((_, pair)) = self.wait_table.remove(&token) {
-                            let (lock, cvar) = &*pair;
-                            let mut pending = lock.lock().unwrap();
-                            *pending = Some(syscall_result as ssize_t);
-                            // notify the condvar that the value has changed.
-                            cvar.notify_one();
-                        }
-                        if let Some(co_name) = Self::map_name(token) {
-                            //notify coroutine
-                            self.pool.try_resume(co_name).expect("has bug, notice !");
+                    let result = self.operator.select(timeout);
+                    if let Some(coroutine) = SchedulableCoroutine::current() {
+                        match coroutine.state() {
+                            CoroutineState::SystemCall(
+                                (),
+                                syscall,
+                                SyscallState::Calling(Syscall::io_uring_enter),
+                            ) => {
+                                coroutine
+                                    .syscall((), syscall, SyscallState::Computing)
+                                    .expect("change to syscall state failed !");
+                            }
+                            _ => unreachable!("wait should never execute to here"),
+                        };
+                    }
+                    let mut r = result?;
+                    if r.0 > 0 {
+                        for cqe in &mut r.1 {
+                            let syscall_result = cqe.result();
+                            let token = cqe.user_data() as usize;
+                            // resolve completed read/write tasks
+                            if let Some((_, pair)) = self.wait_table.remove(&token) {
+                                let (lock, cvar) = &*pair;
+                                let mut pending = lock.lock().unwrap();
+                                *pending = Some(syscall_result as ssize_t);
+                                // notify the condvar that the value has changed.
+                                cvar.notify_one();
+                            }
+                            if let Some(co_name) = Self::map_name(token) {
+                                //notify coroutine
+                                self.pool.try_resume(co_name).expect("has bug, notice !");
+                            }
                         }
                     }
                     timeout = Some(Duration::ZERO);
@@ -489,316 +558,185 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
     }
 }
 
-#[cfg(all(target_os = "linux", feature = "io_uring"))]
-macro_rules! wrap_result {
-    ( $self: expr, $syscall:ident, $user_data: expr, $($arg: expr),* $(,)* ) => {{
-        $self.operator
-            .$syscall($user_data, $($arg, )*)
-            .map(|()| {
-                let arc = Arc::new((Mutex::new(None), Condvar::new()));
-                assert!(
-                    $self.wait_table.insert($user_data, arc.clone()).is_none(),
-                    "The previous token was not retrieved in a timely manner"
-                );
-                arc
-            })
-    }};
-}
-
-#[allow(clippy::type_complexity)]
+#[allow(trivial_numeric_casts)]
 #[cfg(all(target_os = "linux", feature = "io_uring"))]
 impl EventLoopImpl<'_> {
-    pub fn async_cancel(
-        &self,
-        user_data: usize,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, async_cancel, user_data,)
-    }
-
     pub fn epoll_ctl(
         &self,
-        user_data: usize,
-        epfd: libc::c_int,
-        op: libc::c_int,
-        fd: libc::c_int,
+        epfd: c_int,
+        op: c_int,
+        fd: c_int,
         event: *mut epoll_event,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, epoll_ctl, user_data, epfd, op, fd, event)
-    }
-
-    pub fn poll_add(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-        flags: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, poll_add, user_data, fd, flags)
-    }
-
-    pub fn poll_remove(
-        &self,
-        user_data: usize,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, poll_remove, user_data,)
-    }
-
-    pub fn timeout_add(
-        &self,
-        user_data: usize,
-        timeout: Option<Duration>,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, timeout_add, user_data, timeout)
-    }
-
-    pub fn timeout_update(
-        &self,
-        user_data: usize,
-        timeout: Option<Duration>,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, timeout_update, user_data, timeout)
-    }
-
-    pub fn timeout_remove(
-        &self,
-        user_data: usize,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, timeout_remove, user_data,)
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, epoll_ctl, epfd, op, fd, event)
     }
 
     pub fn openat(
         &self,
-        user_data: usize,
-        dir_fd: libc::c_int,
-        pathname: *const libc::c_char,
-        flags: libc::c_int,
+        dir_fd: c_int,
+        pathname: *const c_char,
+        flags: c_int,
         mode: mode_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, openat, user_data, dir_fd, pathname, flags, mode)
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, openat, dir_fd, pathname, flags, mode)
     }
 
     pub fn mkdirat(
         &self,
-        user_data: usize,
-        dir_fd: libc::c_int,
-        pathname: *const libc::c_char,
+        dir_fd: c_int,
+        pathname: *const c_char,
         mode: mode_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, mkdirat, user_data, dir_fd, pathname, mode)
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, mkdirat, dir_fd, pathname, mode)
     }
 
     pub fn renameat(
         &self,
-        user_data: usize,
-        old_dir_fd: libc::c_int,
-        old_path: *const libc::c_char,
-        new_dir_fd: libc::c_int,
-        new_path: *const libc::c_char,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, renameat, user_data, old_dir_fd, old_path, new_dir_fd, new_path)
+        old_dir_fd: c_int,
+        old_path: *const c_char,
+        new_dir_fd: c_int,
+        new_path: *const c_char,
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, renameat, old_dir_fd, old_path, new_dir_fd, new_path)
     }
 
     pub fn renameat2(
         &self,
-        user_data: usize,
-        old_dir_fd: libc::c_int,
-        old_path: *const libc::c_char,
-        new_dir_fd: libc::c_int,
-        new_path: *const libc::c_char,
+        old_dir_fd: c_int,
+        old_path: *const c_char,
+        new_dir_fd: c_int,
+        new_path: *const c_char,
         flags: c_uint,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, renameat2, user_data, old_dir_fd, old_path, new_dir_fd, new_path, flags)
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, renameat2, old_dir_fd, old_path, new_dir_fd, new_path, flags)
     }
 
-    pub fn fsync(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, fsync, user_data, fd)
+    pub fn fsync(&self, fd: c_int) -> std::io::Result<c_int> {
+        wrap_result!(self, fsync, fd)
     }
 
-    pub fn socket(
-        &self,
-        user_data: usize,
-        domain: libc::c_int,
-        ty: libc::c_int,
-        protocol: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, socket, user_data, domain, ty, protocol)
+    pub fn socket(&self, domain: c_int, ty: c_int, protocol: c_int) -> std::io::Result<c_int> {
+        wrap_result!(self, socket, domain, ty, protocol)
     }
 
     pub fn accept(
         &self,
-        user_data: usize,
-        socket: libc::c_int,
+        socket: c_int,
         address: *mut sockaddr,
         address_len: *mut socklen_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, accept, user_data, socket, address, address_len)
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, accept, socket, address, address_len)
     }
 
     pub fn accept4(
         &self,
-        user_data: usize,
-        fd: libc::c_int,
+        fd: c_int,
         addr: *mut sockaddr,
         len: *mut socklen_t,
-        flg: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, accept4, user_data, fd, addr, len, flg)
+        flg: c_int,
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, accept4, fd, addr, len, flg)
     }
 
     pub fn connect(
         &self,
-        user_data: usize,
-        socket: libc::c_int,
+        socket: c_int,
         address: *const sockaddr,
         len: socklen_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, connect, user_data, socket, address, len)
+    ) -> std::io::Result<c_int> {
+        wrap_result!(self, connect, socket, address, len)
     }
 
-    pub fn shutdown(
-        &self,
-        user_data: usize,
-        socket: libc::c_int,
-        how: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, shutdown, user_data, socket, how)
+    pub fn shutdown(&self, socket: c_int, how: c_int) -> std::io::Result<c_int> {
+        wrap_result!(self, shutdown, socket, how)
     }
 
-    pub fn close(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, close, user_data, fd)
+    pub fn close(&self, fd: c_int) -> std::io::Result<c_int> {
+        wrap_result!(self, close, fd)
     }
 
     pub fn recv(
         &self,
-        user_data: usize,
-        socket: libc::c_int,
+        socket: c_int,
         buf: *mut c_void,
         len: size_t,
-        flags: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, recv, user_data, socket, buf, len, flags)
+        flags: c_int,
+    ) -> std::io::Result<ssize_t> {
+        wrap_result!(self, recv, socket, buf, len, flags)
     }
 
-    pub fn read(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-        buf: *mut c_void,
-        count: size_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, read, user_data, fd, buf, count)
+    pub fn read(&self, fd: c_int, buf: *mut c_void, count: size_t) -> std::io::Result<ssize_t> {
+        wrap_result!(self, read, fd, buf, count)
     }
 
     pub fn pread(
         &self,
-        user_data: usize,
-        fd: libc::c_int,
+        fd: c_int,
         buf: *mut c_void,
         count: size_t,
         offset: off_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, pread, user_data, fd, buf, count, offset)
+    ) -> std::io::Result<ssize_t> {
+        wrap_result!(self, pread, fd, buf, count, offset)
     }
 
-    pub fn readv(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-        iov: *const iovec,
-        iovcnt: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, readv, user_data, fd, iov, iovcnt)
+    pub fn readv(&self, fd: c_int, iov: *const iovec, iovcnt: c_int) -> std::io::Result<ssize_t> {
+        wrap_result!(self, readv, fd, iov, iovcnt)
     }
 
     pub fn preadv(
         &self,
-        user_data: usize,
-        fd: libc::c_int,
+        fd: c_int,
         iov: *const iovec,
-        iovcnt: libc::c_int,
+        iovcnt: c_int,
         offset: off_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, preadv, user_data, fd, iov, iovcnt, offset)
+    ) -> std::io::Result<ssize_t> {
+        wrap_result!(self, preadv, fd, iov, iovcnt, offset)
     }
 
-    pub fn recvmsg(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-        msg: *mut msghdr,
-        flags: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, recvmsg, user_data, fd, msg, flags)
+    pub fn recvmsg(&self, fd: c_int, msg: *mut msghdr, flags: c_int) -> std::io::Result<ssize_t> {
+        wrap_result!(self, recvmsg, fd, msg, flags)
     }
 
     pub fn send(
         &self,
-        user_data: usize,
-        socket: libc::c_int,
+        socket: c_int,
         buf: *const c_void,
         len: size_t,
-        flags: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, send, user_data, socket, buf, len, flags)
+        flags: c_int,
+    ) -> std::io::Result<ssize_t> {
+        wrap_result!(self, send, socket, buf, len, flags)
     }
 
-    pub fn write(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-        buf: *const c_void,
-        count: size_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, write, user_data, fd, buf, count)
+    pub fn write(&self, fd: c_int, buf: *const c_void, count: size_t) -> std::io::Result<ssize_t> {
+        wrap_result!(self, write, fd, buf, count)
     }
 
     pub fn pwrite(
         &self,
-        user_data: usize,
-        fd: libc::c_int,
+        fd: c_int,
         buf: *const c_void,
         count: size_t,
         offset: off_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, pwrite, user_data, fd, buf, count, offset)
+    ) -> std::io::Result<ssize_t> {
+        wrap_result!(self, pwrite, fd, buf, count, offset)
     }
 
-    pub fn writev(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-        iov: *const iovec,
-        iovcnt: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, writev, user_data, fd, iov, iovcnt)
+    pub fn writev(&self, fd: c_int, iov: *const iovec, iovcnt: c_int) -> std::io::Result<ssize_t> {
+        wrap_result!(self, writev, fd, iov, iovcnt)
     }
 
     pub fn pwritev(
         &self,
-        user_data: usize,
-        fd: libc::c_int,
+        fd: c_int,
         iov: *const iovec,
-        iovcnt: libc::c_int,
+        iovcnt: c_int,
         offset: off_t,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, pwritev, user_data, fd, iov, iovcnt, offset)
+    ) -> std::io::Result<ssize_t> {
+        wrap_result!(self, pwritev, fd, iov, iovcnt, offset)
     }
 
-    pub fn sendmsg(
-        &self,
-        user_data: usize,
-        fd: libc::c_int,
-        msg: *const msghdr,
-        flags: libc::c_int,
-    ) -> std::io::Result<Arc<(Mutex<Option<ssize_t>>, Condvar)>> {
-        wrap_result!(self, sendmsg, user_data, fd, msg, flags)
+    pub fn sendmsg(&self, fd: c_int, msg: *const msghdr, flags: c_int) -> std::io::Result<ssize_t> {
+        wrap_result!(self, sendmsg, fd, msg, flags)
     }
 }
 
