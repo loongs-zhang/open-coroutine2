@@ -220,8 +220,7 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         len: size_t,
         flags: c_int,
     ) -> ssize_t {
-        //todo
-        impl_default!(self, send, fn_ptr, socket, buf, len, flags)
+        impl_io_uring!(self, send, fn_ptr, socket, buf, len, flags)
     }
 
     fn sendto(
