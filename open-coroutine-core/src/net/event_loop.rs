@@ -707,6 +707,18 @@ impl EventLoopImpl<'_> {
         wrap_result!(self, send, socket, buf, len, flags)
     }
 
+    pub fn sendto(
+        &self,
+        socket: c_int,
+        buf: *const c_void,
+        len: size_t,
+        flags: c_int,
+        addr: *const sockaddr,
+        addrlen: socklen_t,
+    ) -> std::io::Result<ssize_t> {
+        wrap_result!(self, sendto, socket, buf, len, flags, addr, addrlen)
+    }
+
     pub fn write(&self, fd: c_int, buf: *const c_void, count: size_t) -> std::io::Result<ssize_t> {
         wrap_result!(self, write, fd, buf, count)
     }

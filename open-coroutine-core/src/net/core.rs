@@ -5,6 +5,11 @@ use crate::net::event_loop::{EventLoop, EventLoopImpl, JoinHandleImpl};
 #[cfg(all(unix, feature = "preemptive-schedule"))]
 use crate::pool::task::TaskImpl;
 use crate::pool::Pool;
+#[cfg(all(target_os = "linux", feature = "io_uring"))]
+use libc::{
+    c_char, c_uint, c_void, epoll_event, iovec, mode_t, msghdr, off_t, size_t, sockaddr, socklen_t,
+    ssize_t,
+};
 use once_cell::sync::Lazy;
 use std::ffi::c_int;
 use std::panic::UnwindSafe;
@@ -193,5 +198,189 @@ impl EventLoops {
         for _ in 0..EVENT_LOOPS.len() {
             _ = EventLoops::next(false).0.del_write_event(fd);
         }
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "io_uring"))]
+impl EventLoops {
+    pub fn epoll_ctl(
+        epfd: c_int,
+        op: c_int,
+        fd: c_int,
+        event: *mut epoll_event,
+    ) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.epoll_ctl(epfd, op, fd, event)
+    }
+
+    pub fn openat(
+        dir_fd: c_int,
+        pathname: *const c_char,
+        flags: c_int,
+        mode: mode_t,
+    ) -> std::io::Result<c_int> {
+        EventLoops::next(false)
+            .0
+            .openat(dir_fd, pathname, flags, mode)
+    }
+
+    pub fn mkdirat(dir_fd: c_int, pathname: *const c_char, mode: mode_t) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.mkdirat(dir_fd, pathname, mode)
+    }
+
+    pub fn renameat(
+        old_dir_fd: c_int,
+        old_path: *const c_char,
+        new_dir_fd: c_int,
+        new_path: *const c_char,
+    ) -> std::io::Result<c_int> {
+        EventLoops::next(false)
+            .0
+            .renameat(old_dir_fd, old_path, new_dir_fd, new_path)
+    }
+
+    pub fn renameat2(
+        old_dir_fd: c_int,
+        old_path: *const c_char,
+        new_dir_fd: c_int,
+        new_path: *const c_char,
+        flags: c_uint,
+    ) -> std::io::Result<c_int> {
+        EventLoops::next(false)
+            .0
+            .renameat2(old_dir_fd, old_path, new_dir_fd, new_path, flags)
+    }
+
+    pub fn fsync(fd: c_int) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.fsync(fd)
+    }
+
+    pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.socket(domain, ty, protocol)
+    }
+
+    pub fn accept(
+        socket: c_int,
+        address: *mut sockaddr,
+        address_len: *mut socklen_t,
+    ) -> std::io::Result<c_int> {
+        EventLoops::next(false)
+            .0
+            .accept(socket, address, address_len)
+    }
+
+    pub fn accept4(
+        fd: c_int,
+        addr: *mut sockaddr,
+        len: *mut socklen_t,
+        flg: c_int,
+    ) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.accept4(fd, addr, len, flg)
+    }
+
+    pub fn connect(
+        socket: c_int,
+        address: *const sockaddr,
+        len: socklen_t,
+    ) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.connect(socket, address, len)
+    }
+
+    pub fn shutdown(socket: c_int, how: c_int) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.shutdown(socket, how)
+    }
+
+    pub fn close(fd: c_int) -> std::io::Result<c_int> {
+        EventLoops::next(false).0.close(fd)
+    }
+
+    pub fn recv(
+        socket: c_int,
+        buf: *mut c_void,
+        len: size_t,
+        flags: c_int,
+    ) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.recv(socket, buf, len, flags)
+    }
+
+    pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.read(fd, buf, count)
+    }
+
+    pub fn pread(
+        fd: c_int,
+        buf: *mut c_void,
+        count: size_t,
+        offset: off_t,
+    ) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.pread(fd, buf, count, offset)
+    }
+
+    pub fn readv(fd: c_int, iov: *const iovec, iovcnt: c_int) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.readv(fd, iov, iovcnt)
+    }
+
+    pub fn preadv(
+        fd: c_int,
+        iov: *const iovec,
+        iovcnt: c_int,
+        offset: off_t,
+    ) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.preadv(fd, iov, iovcnt, offset)
+    }
+
+    pub fn recvmsg(fd: c_int, msg: *mut msghdr, flags: c_int) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.recvmsg(fd, msg, flags)
+    }
+
+    pub fn send(
+        socket: c_int,
+        buf: *const c_void,
+        len: size_t,
+        flags: c_int,
+    ) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.send(socket, buf, len, flags)
+    }
+
+    pub fn sendto(
+        socket: c_int,
+        buf: *const c_void,
+        len: size_t,
+        flags: c_int,
+        addr: *const sockaddr,
+        addrlen: socklen_t,
+    ) -> std::io::Result<ssize_t> {
+        EventLoops::next(false)
+            .0
+            .sendto(socket, buf, len, flags, addr, addrlen)
+    }
+
+    pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.write(fd, buf, count)
+    }
+
+    pub fn pwrite(
+        fd: c_int,
+        buf: *const c_void,
+        count: size_t,
+        offset: off_t,
+    ) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.pwrite(fd, buf, count, offset)
+    }
+
+    pub fn writev(fd: c_int, iov: *const iovec, iovcnt: c_int) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.writev(fd, iov, iovcnt)
+    }
+
+    pub fn pwritev(
+        fd: c_int,
+        iov: *const iovec,
+        iovcnt: c_int,
+        offset: off_t,
+    ) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.pwritev(fd, iov, iovcnt, offset)
+    }
+
+    pub fn sendmsg(fd: c_int, msg: *const msghdr, flags: c_int) -> std::io::Result<ssize_t> {
+        EventLoops::next(false).0.sendmsg(fd, msg, flags)
     }
 }

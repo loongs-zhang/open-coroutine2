@@ -1,7 +1,7 @@
 use io_uring::opcode::{
     Accept, AsyncCancel, Close, Connect, EpollCtl, Fsync, MkDirAt, OpenAt, PollAdd, PollRemove,
-    Read, Readv, Recv, RecvMsg, RenameAt, Send, SendMsg, Shutdown, Socket, Timeout, TimeoutRemove,
-    TimeoutUpdate, Write, Writev,
+    Read, Readv, Recv, RecvMsg, RenameAt, Send, SendMsg, SendZc, Shutdown, Socket, Timeout,
+    TimeoutRemove, TimeoutUpdate, Write, Writev,
 };
 use io_uring::squeue::Entry;
 use io_uring::types::{epoll_event, Fd, Timespec};
@@ -188,6 +188,18 @@ pub trait Operator: Debug {
         flags: c_int,
     ) -> std::io::Result<()>;
 
+    #[allow(clippy::too_many_arguments)]
+    fn sendto(
+        &self,
+        user_data: usize,
+        socket: c_int,
+        buf: *const c_void,
+        len: size_t,
+        flags: c_int,
+        addr: *const sockaddr,
+        addrlen: socklen_t,
+    ) -> std::io::Result<()>;
+
     fn write(
         &self,
         user_data: usize,
@@ -316,6 +328,8 @@ static SUPPORT_READV: Lazy<bool> = support!(Readv);
 static SUPPORT_RECVMSG: Lazy<bool> = support!(RecvMsg);
 
 static SUPPORT_SEND: Lazy<bool> = support!(Send);
+
+static SUPPORT_SEND_ZC: Lazy<bool> = support!(SendZc);
 
 static SUPPORT_WRITE: Lazy<bool> = support!(Write);
 
@@ -761,6 +775,27 @@ impl Operator for OperatorImpl<'_> {
         impl_if_support!(*SUPPORT_SEND, {
             let entry = Send::new(Fd(socket), buf.cast::<u8>(), len as u32)
                 .flags(flags)
+                .build()
+                .user_data(user_data as u64);
+            return self.push_sq(entry);
+        })
+    }
+
+    fn sendto(
+        &self,
+        user_data: usize,
+        socket: c_int,
+        buf: *const c_void,
+        len: size_t,
+        flags: c_int,
+        addr: *const sockaddr,
+        addrlen: socklen_t,
+    ) -> std::io::Result<()> {
+        impl_if_support!(*SUPPORT_SEND_ZC, {
+            let entry = SendZc::new(Fd(socket), buf.cast::<u8>(), len as u32)
+                .flags(flags)
+                .dest_addr(addr)
+                .dest_addr_len(addrlen)
                 .build()
                 .user_data(user_data as u64);
             return self.push_sq(entry);
