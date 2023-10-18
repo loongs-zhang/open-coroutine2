@@ -55,6 +55,7 @@ pub enum Syscall {
     sendmsg,
     fsync,
     renameat,
+    #[cfg(target_os = "linux")]
     renameat2,
     mkdirat,
     openat,
