@@ -18,6 +18,8 @@ pub enum Syscall {
     epoll_ctl,
     #[cfg(target_os = "linux")]
     epoll_wait,
+    #[cfg(target_os = "linux")]
+    io_uring_enter,
     #[cfg(any(
         target_os = "macos",
         target_os = "ios",
@@ -53,6 +55,8 @@ pub enum Syscall {
     sendmsg,
     fsync,
     renameat,
+    #[cfg(target_os = "linux")]
+    renameat2,
     mkdirat,
     openat,
 }

@@ -8,7 +8,6 @@ use crate::pool::join::JoinHandle;
 use crate::pool::task::TaskImpl;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
 use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender};
-use polling::Event;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
@@ -18,7 +17,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 #[allow(trivial_numeric_casts, clippy::cast_possible_truncation)]
-pub(crate) fn token() -> usize {
+fn token() -> usize {
     if let Some(co) = SchedulableCoroutine::current() {
         #[allow(box_pointers)]
         let boxed: &'static mut CString = Box::leak(Box::from(
@@ -27,11 +26,20 @@ pub(crate) fn token() -> usize {
         let cstr: &'static CStr = boxed.as_c_str();
         cstr.as_ptr().cast::<c_void>() as usize
     } else {
-        0
+        unsafe {
+            cfg_if::cfg_if! {
+                if #[cfg(windows)] {
+                    let thread_id = windows_sys::Win32::System::Threading::GetCurrentThread();
+                } else {
+                    let thread_id = libc::pthread_self();
+                }
+            }
+            thread_id as usize
+        }
     }
 }
 
-pub trait EventLoop<'e>: Selector + Pool<'e, JoinHandleImpl<'e>> {
+pub trait EventLoop<'e>: Pool<'e, JoinHandleImpl<'e>> {
     fn wait_event(&self, timeout: Option<Duration>) -> std::io::Result<usize>;
 
     fn wait_just(&self, timeout: Option<Duration>) -> std::io::Result<usize>;
@@ -118,12 +126,29 @@ impl EventLoopImpl<'_> {
     }
 
     fn map_name<'c>(token: usize) -> Option<&'c str> {
-        if token == 0 {
-            return None;
-        }
         unsafe { CStr::from_ptr((token as *const c_void).cast::<c_char>()) }
             .to_str()
             .ok()
+    }
+
+    pub fn add_read_event(&self, fd: c_int) -> std::io::Result<()> {
+        self.selector.add_read_event(fd, token())
+    }
+
+    pub fn add_write_event(&self, fd: c_int) -> std::io::Result<()> {
+        self.selector.add_write_event(fd, token())
+    }
+
+    pub fn del_event(&self, fd: c_int) -> std::io::Result<()> {
+        self.selector.del_event(fd)
+    }
+
+    pub fn del_read_event(&self, fd: c_int) -> std::io::Result<()> {
+        self.selector.del_read_event(fd)
+    }
+
+    pub fn del_write_event(&self, fd: c_int) -> std::io::Result<()> {
+        self.selector.del_write_event(fd)
     }
 }
 
@@ -307,32 +332,6 @@ impl<'e> Pool<'e, JoinHandleImpl<'e>> for EventLoopImpl<'e> {
             }
             left = left.saturating_sub(once);
         }
-    }
-}
-
-impl Selector for EventLoopImpl<'_> {
-    fn select(&self, events: &mut Vec<Event>, timeout: Option<Duration>) -> std::io::Result<usize> {
-        self.selector.select(events, timeout)
-    }
-
-    fn add_read_event(&self, fd: c_int, token: usize) -> std::io::Result<()> {
-        self.selector.add_read_event(fd, token)
-    }
-
-    fn add_write_event(&self, fd: c_int, token: usize) -> std::io::Result<()> {
-        self.selector.add_write_event(fd, token)
-    }
-
-    fn del_event(&self, fd: c_int) -> std::io::Result<()> {
-        self.selector.del_event(fd)
-    }
-
-    fn del_read_event(&self, fd: c_int) -> std::io::Result<()> {
-        self.selector.del_read_event(fd)
-    }
-
-    fn del_write_event(&self, fd: c_int) -> std::io::Result<()> {
-        self.selector.del_write_event(fd)
     }
 }
 
