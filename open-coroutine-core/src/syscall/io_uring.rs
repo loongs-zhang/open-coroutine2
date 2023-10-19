@@ -98,8 +98,7 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         address: *mut sockaddr,
         address_len: *mut socklen_t,
     ) -> c_int {
-        //todo
-        impl_default!(self, accept, fn_ptr, socket, address, address_len)
+        impl_io_uring!(self, accept, fn_ptr, socket, address, address_len)
     }
 
     fn connect(
@@ -220,7 +219,8 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         len: size_t,
         flags: c_int,
     ) -> ssize_t {
-        impl_io_uring!(self, send, fn_ptr, socket, buf, len, flags)
+        //todo
+        impl_default!(self, send, fn_ptr, socket, buf, len, flags)
     }
 
     fn sendto(
