@@ -1,5 +1,5 @@
 use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
-use crate::coroutine::{Current, StateMachine};
+use crate::coroutine::{Current, Named, StateMachine};
 use crate::scheduler::SchedulableCoroutine;
 #[cfg(target_os = "linux")]
 use crate::syscall::LinuxSyscall;
