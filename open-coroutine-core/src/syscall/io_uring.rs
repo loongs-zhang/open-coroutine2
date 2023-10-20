@@ -79,7 +79,8 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         ty: c_int,
         protocol: c_int,
     ) -> c_int {
-        impl_io_uring!(self, socket, fn_ptr, domain, ty, protocol)
+        //todo
+        impl_default!(self, socket, fn_ptr, domain, ty, protocol)
     }
 
     fn listen(
