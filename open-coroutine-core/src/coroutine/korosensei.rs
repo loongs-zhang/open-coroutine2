@@ -5,8 +5,9 @@ use crate::coroutine::{Coroutine, Current, Named, StateMachine, COROUTINE};
 use corosensei::stack::DefaultStack;
 use corosensei::trap::TrapHandlerRegs;
 use corosensei::{CoroutineResult, ScopedCoroutine};
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
 use std::io::{Error, ErrorKind};
@@ -29,7 +30,7 @@ where
 {
     name: String,
     inner: ScopedCoroutine<'c, Param, Yield, Result<Return, &'static str>, DefaultStack>,
-    state: Cell<CoroutineState<Yield, Return>>,
+    state: RefCell<VecDeque<CoroutineState<Yield, Return>>>,
     local: CoroutineLocal<'c>,
 }
 
@@ -186,7 +187,7 @@ where
         Ok(CoroutineImpl {
             name,
             inner,
-            state: Cell::new(CoroutineState::Created),
+            state: RefCell::new(VecDeque::from(vec![CoroutineState::Created])),
             local: CoroutineLocal::default(),
         })
     }
@@ -249,19 +250,19 @@ where
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
     fn state(&self) -> CoroutineState<Self::Yield, Self::Return> {
-        self.state.get()
+        *self.state.borrow().front().unwrap()
     }
 
     fn ready(&self) -> std::io::Result<()> {
         let current = self.state();
         match current {
             CoroutineState::Created => {
-                self.state.set(CoroutineState::Ready);
+                self.state.borrow_mut().push_front(CoroutineState::Ready);
                 return Ok(());
             }
             CoroutineState::Suspend(_, timestamp) => {
                 if timestamp <= open_coroutine_timer::now() {
-                    self.state.set(CoroutineState::Ready);
+                    self.state.borrow_mut().push_front(CoroutineState::Ready);
                     return Ok(());
                 }
             }
@@ -281,12 +282,12 @@ where
         let current = self.state();
         match current {
             CoroutineState::Created | CoroutineState::Ready => {
-                self.state.set(CoroutineState::Running);
+                self.state.borrow_mut().push_front(CoroutineState::Running);
                 return Ok(());
             }
             CoroutineState::Suspend(_, timestamp) => {
                 if timestamp <= open_coroutine_timer::now() {
-                    self.state.set(CoroutineState::Running);
+                    self.state.borrow_mut().push_front(CoroutineState::Running);
                     return Ok(());
                 }
             }
@@ -306,7 +307,9 @@ where
     fn suspend(&self, val: Self::Yield, timestamp: u64) -> std::io::Result<()> {
         let current = self.state();
         if CoroutineState::Running == current {
-            self.state.set(CoroutineState::Suspend(val, timestamp));
+            self.state
+                .borrow_mut()
+                .push_front(CoroutineState::Suspend(val, timestamp));
             return Ok(());
         }
         Err(Error::new(
@@ -329,13 +332,15 @@ where
         match current {
             CoroutineState::Running => {
                 self.state
-                    .set(CoroutineState::SystemCall(val, syscall, syscall_state));
+                    .borrow_mut()
+                    .push_front(CoroutineState::SystemCall(val, syscall, syscall_state));
                 return Ok(());
             }
             CoroutineState::SystemCall(_, original_syscall, _) => {
                 if original_syscall == syscall {
                     self.state
-                        .set(CoroutineState::SystemCall(val, syscall, syscall_state));
+                        .borrow_mut()
+                        .push_front(CoroutineState::SystemCall(val, syscall, syscall_state));
                     return Ok(());
                 }
             }
@@ -356,7 +361,7 @@ where
         if let CoroutineState::SystemCall(_, _, SyscallState::Finished | SyscallState::Timeout) =
             current
         {
-            self.state.set(CoroutineState::Running);
+            self.state.borrow_mut().push_front(CoroutineState::Running);
             return Ok(());
         }
         Err(Error::new(
@@ -372,7 +377,9 @@ where
     fn complete(&self, val: Self::Return) -> std::io::Result<()> {
         let current = self.state();
         if CoroutineState::Running == current {
-            self.state.set(CoroutineState::Complete(val));
+            self.state
+                .borrow_mut()
+                .push_front(CoroutineState::Complete(val));
             return Ok(());
         }
         Err(Error::new(
@@ -388,7 +395,9 @@ where
     fn error(&self, val: &'static str) -> std::io::Result<()> {
         let current = self.state();
         if CoroutineState::Running == current {
-            self.state.set(CoroutineState::Error(val));
+            self.state
+                .borrow_mut()
+                .push_front(CoroutineState::Error(val));
             return Ok(());
         }
         Err(Error::new(

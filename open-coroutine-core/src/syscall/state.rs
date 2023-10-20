@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{Syscall, SyscallState};
+use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::{Current, StateMachine};
 use crate::scheduler::SchedulableCoroutine;
 #[cfg(target_os = "linux")]
@@ -21,19 +21,47 @@ macro_rules! change_state {
         Syscall::init_current(Syscall::$syscall);
         if let Some(coroutine) = SchedulableCoroutine::current() {
             //协程进入系统调用状态
+            let new_syscall;
+            let new_state;
+            match coroutine.state() {
+                CoroutineState::Running => {
+                    new_syscall = Syscall::$syscall;
+                    new_state = SyscallState::Computing;
+                }
+                CoroutineState::SystemCall((), syscall, SyscallState::Computing) => {
+                    new_syscall = syscall;
+                    new_state = SyscallState::Calling(Syscall::$syscall);
+                }
+                _ => unreachable!("should never execute to here"),
+            };
             coroutine
-                .syscall((), Syscall::$syscall, SyscallState::Computing)
+                .syscall((), new_syscall, new_state)
                 .expect("change to syscall state failed !");
         }
         let r = $self.inner.$syscall($($arg, )*);
         if let Some(coroutine) = SchedulableCoroutine::current() {
             //系统调用完成
-            coroutine
-                .syscall((), Syscall::$syscall, SyscallState::Finished)
-                .expect("change to syscall Finished state failed !");
-            coroutine
-                .syscall_resume()
-                .expect("change to running state failed !");
+            match coroutine.state() {
+                CoroutineState::SystemCall((), syscall, state) => {
+                    match state {
+                        SyscallState::Computing => {
+                            coroutine
+                                .syscall((), Syscall::$syscall, SyscallState::Finished)
+                                .expect("change to syscall Finished state failed !");
+                            coroutine
+                                .syscall_resume()
+                                .expect("change to running state failed !");
+                        }
+                        SyscallState::Calling(_) => {
+                            coroutine
+                                .syscall((), syscall, SyscallState::Computing)
+                                .expect("change to syscall Finished state failed !");
+                        }
+                        _ => unreachable!("should never execute to here"),
+                    }
+                }
+                _ => unreachable!("should never execute to here"),
+            };
         }
         Syscall::clean_current();
         return r;

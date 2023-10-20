@@ -1,6 +1,13 @@
 use libc::{c_int, sockaddr, socklen_t};
 use once_cell::sync::Lazy;
 
+static SOCKET: Lazy<extern "C" fn(c_int, c_int, c_int) -> c_int> = init_hook!("socket");
+
+#[no_mangle]
+pub extern "C" fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int {
+    open_coroutine_core::syscall::facade::socket(Some(Lazy::force(&SOCKET)), domain, ty, protocol)
+}
+
 static CONNECT: Lazy<extern "C" fn(c_int, *const sockaddr, socklen_t) -> c_int> =
     init_hook!("connect");
 
