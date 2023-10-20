@@ -308,7 +308,8 @@ impl<I: LinuxSyscall> LinuxSyscall for IoUringLinuxSyscall<I> {
         fd: c_int,
         event: *mut epoll_event,
     ) -> c_int {
-        impl_io_uring!(self, epoll_ctl, fn_ptr, epfd, op, fd, event)
+        //todo
+        impl_default!(self, epoll_ctl, fn_ptr, epfd, op, fd, event)
     }
 
     fn accept4(
