@@ -2,7 +2,6 @@
 use crate::monitor::Monitor;
 use crate::net::config::Config;
 use crate::net::event_loop::{EventLoop, EventLoopImpl, JoinHandleImpl};
-use crate::net::selector::Selector;
 #[cfg(all(unix, feature = "preemptive-schedule"))]
 use crate::pool::task::TaskImpl;
 use crate::pool::Pool;
@@ -150,7 +149,7 @@ impl EventLoops {
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
-            event_loop.add_read_event(fd, crate::net::event_loop::token())?;
+            event_loop.add_read_event(fd)?;
         }
         if is_monitor {
             Self::wait_event(timeout)
@@ -169,7 +168,7 @@ impl EventLoops {
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
-            event_loop.add_write_event(fd, crate::net::event_loop::token())?;
+            event_loop.add_write_event(fd)?;
         }
         if is_monitor {
             Self::wait_event(timeout)

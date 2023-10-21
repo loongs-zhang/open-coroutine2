@@ -84,7 +84,6 @@ pub mod net;
 /// Syscall abstraction and impl.
 #[allow(
     unused_imports,
-    clippy::missing_errors_doc,
     clippy::too_many_arguments,
     clippy::similar_names,
     missing_docs,

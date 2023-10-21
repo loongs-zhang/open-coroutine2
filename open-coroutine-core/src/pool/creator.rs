@@ -1,7 +1,8 @@
 use crate::coroutine::constants::{Syscall, SyscallState};
 use crate::coroutine::Current;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl};
-use crate::scheduler::{Listener, SchedulableCoroutine};
+use crate::scheduler::listener::Listener;
+use crate::scheduler::SchedulableCoroutine;
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, Default)]

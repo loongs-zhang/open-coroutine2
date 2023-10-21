@@ -51,12 +51,11 @@ macro_rules! co {
     }};
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::Duration;
 
-    #[ignore]
     #[test]
     fn simplest() -> std::io::Result<()> {
         let pair = Arc::new((Mutex::new(true), Condvar::new()));
