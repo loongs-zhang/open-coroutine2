@@ -110,16 +110,6 @@ macro_rules! log_syscall {
                 $once_result,
                 std::io::Error::last_os_error(),
             );
-        } else if let Some(syscall) = $crate::coroutine::constants::Syscall::current() {
-            $crate::info!(
-                "{} {} {} {} {} {}",
-                std::thread::current().name().unwrap_or("UnnamedThread"),
-                syscall,
-                $socket,
-                $done,
-                $once_result,
-                std::io::Error::last_os_error(),
-            );
         }
     };
 }
