@@ -411,6 +411,7 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
         self.wait_just(left_time)
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     fn wait_just(&self, timeout: Option<Duration>) -> std::io::Result<usize> {
         let mut timeout = timeout;
         if let Some(time) = timeout {
