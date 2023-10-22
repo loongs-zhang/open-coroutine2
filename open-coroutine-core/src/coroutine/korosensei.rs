@@ -328,14 +328,16 @@ where
         let current = self.state();
         match current {
             CoroutineState::Running => {
-                self.state
-                    .set(CoroutineState::SystemCall(val, syscall, syscall_state));
+                let state = CoroutineState::SystemCall(val, syscall, syscall_state);
+                self.state.set(state);
+                crate::info!("{} {}->{}", self.get_name(), current, state);
                 return Ok(());
             }
             CoroutineState::SystemCall(_, original_syscall, _) => {
                 if original_syscall == syscall {
-                    self.state
-                        .set(CoroutineState::SystemCall(val, syscall, syscall_state));
+                    let state = CoroutineState::SystemCall(val, syscall, syscall_state);
+                    self.state.set(state);
+                    crate::info!("{} {}->{}", self.get_name(), current, state);
                     return Ok(());
                 }
             }
@@ -356,7 +358,9 @@ where
         if let CoroutineState::SystemCall(_, _, SyscallState::Finished | SyscallState::Timeout) =
             current
         {
-            self.state.set(CoroutineState::Running);
+            let state = CoroutineState::Running;
+            self.state.set(state);
+            crate::info!("{} {}->{}", self.get_name(), current, state);
             return Ok(());
         }
         Err(Error::new(
