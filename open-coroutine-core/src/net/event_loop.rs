@@ -20,11 +20,15 @@ cfg_if::cfg_if! {
     if #[cfg(all(target_os = "linux", feature = "io_uring"))] {
         use crate::coroutine::suspender::SimpleSuspender;
         use crate::net::operator::Operator;
-        use crate::net::operator::OperatorImpl;
         use dashmap::DashMap;
         use libc::{
             c_uint, epoll_event, iovec, mode_t, msghdr, off_t, size_t, sockaddr, socklen_t, ssize_t,
         };
+        use once_cell::sync::Lazy;
+
+        #[allow(clippy::type_complexity)]
+        static SYSCALL_WAIT_TABLE: Lazy<DashMap<usize, Arc<(Mutex<Option<ssize_t>>, Condvar)>>> =
+            Lazy::new(DashMap::new);
 
         macro_rules! wrap_result {
             ( $self: expr, $syscall:ident, $($arg: expr),* $(,)* ) => {{
@@ -45,7 +49,7 @@ cfg_if::cfg_if! {
                     .map(|()| {
                         let arc = Arc::new((Mutex::new(None), Condvar::new()));
                         assert!(
-                            $self.wait_table.insert(user_data, arc.clone()).is_none(),
+                            SYSCALL_WAIT_TABLE.insert(user_data, arc.clone()).is_none(),
                             "The previous token was not retrieved in a timely manner"
                         );
                         if let Some(suspender) = SchedulableSuspender::current() {
@@ -143,10 +147,7 @@ pub struct EventLoopImpl<'e> {
     pool: CoroutinePoolImpl<'e>,
     selector: SelectorImpl,
     #[cfg(all(target_os = "linux", feature = "io_uring"))]
-    operator: OperatorImpl<'e>,
-    #[allow(clippy::type_complexity)]
-    #[cfg(all(target_os = "linux", feature = "io_uring"))]
-    wait_table: DashMap<usize, Arc<(Mutex<Option<ssize_t>>, Condvar)>>,
+    operator: Operator<'e>,
     stop: Arc<(Mutex<bool>, Condvar)>,
     shared_stop: Arc<(Mutex<AtomicUsize>, Condvar)>,
 }
@@ -175,9 +176,7 @@ impl EventLoopImpl<'_> {
             ),
             selector: SelectorImpl::new()?,
             #[cfg(all(target_os = "linux", feature = "io_uring"))]
-            operator: OperatorImpl::new(cpu as u32)?,
-            #[cfg(all(target_os = "linux", feature = "io_uring"))]
-            wait_table: DashMap::new(),
+            operator: Operator::new(cpu as u32)?,
             stop: Arc::new((Mutex::new(false), Condvar::new())),
             shared_stop,
         })
@@ -395,10 +394,9 @@ impl<'e> Pool<'e, JoinHandleImpl<'e>> for EventLoopImpl<'e> {
 
 impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
     fn wait_event(&self, timeout: Option<Duration>) -> std::io::Result<usize> {
-        if SchedulableCoroutine::current().is_some() {
-            return self.wait_just(timeout);
-        }
-        let left_time = if let Some(time) = timeout {
+        let left_time = if SchedulableCoroutine::current().is_some() {
+            timeout
+        } else if let Some(time) = timeout {
             Some(
                 self.pool
                     .try_timed_schedule(time)
@@ -417,7 +415,6 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
         if let Some(time) = timeout {
             if let Some(coroutine) = SchedulableCoroutine::current() {
                 if let Some(suspender) = SchedulableSuspender::current() {
-                    let timeout_time = open_coroutine_timer::get_timeout_time(time);
                     let syscall = match coroutine.state() {
                         CoroutineState::Running => {
                             cfg_if::cfg_if! {
@@ -443,7 +440,11 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
                         _ => unreachable!("wait should never execute to here"),
                     };
                     coroutine
-                        .syscall((), syscall, SyscallState::Suspend(timeout_time))
+                        .syscall(
+                            (),
+                            syscall,
+                            SyscallState::Suspend(open_coroutine_timer::get_timeout_time(time)),
+                        )
                         .expect("change to syscall state failed !");
                     suspender.delay(time);
                     //协程环境delay后直接重置timeout
@@ -491,7 +492,7 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
                             let syscall_result = cqe.result();
                             let token = cqe.user_data() as usize;
                             // resolve completed read/write tasks
-                            if let Some((_, pair)) = self.wait_table.remove(&token) {
+                            if let Some((_, pair)) = SYSCALL_WAIT_TABLE.remove(&token) {
                                 let (lock, cvar) = &*pair;
                                 let mut pending = lock.lock().unwrap();
                                 *pending = Some(syscall_result as ssize_t);

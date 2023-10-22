@@ -19,236 +19,12 @@ use std::time::Duration;
 #[cfg(test)]
 mod tests;
 
-pub trait Operator: Debug {
-    fn async_cancel(&self, user_data: usize) -> std::io::Result<()>;
-
-    /// poll
-
-    fn epoll_ctl(
-        &self,
-        user_data: usize,
-        epfd: c_int,
-        op: c_int,
-        fd: c_int,
-        event: *mut libc::epoll_event,
-    ) -> std::io::Result<()>;
-
-    fn poll_add(&self, user_data: usize, fd: c_int, flags: c_int) -> std::io::Result<()>;
-
-    fn poll_remove(&self, user_data: usize) -> std::io::Result<()>;
-
-    /// timeout
-
-    fn timeout_add(&self, user_data: usize, timeout: Option<Duration>) -> std::io::Result<()>;
-
-    fn timeout_update(&self, user_data: usize, timeout: Option<Duration>) -> std::io::Result<()>;
-
-    fn timeout_remove(&self, user_data: usize) -> std::io::Result<()>;
-
-    /// file IO
-
-    fn openat(
-        &self,
-        user_data: usize,
-        dir_fd: c_int,
-        pathname: *const c_char,
-        flags: c_int,
-        mode: mode_t,
-    ) -> std::io::Result<()>;
-
-    fn mkdirat(
-        &self,
-        user_data: usize,
-        dir_fd: c_int,
-        pathname: *const c_char,
-        mode: mode_t,
-    ) -> std::io::Result<()>;
-
-    fn renameat(
-        &self,
-        user_data: usize,
-        old_dir_fd: c_int,
-        old_path: *const c_char,
-        new_dir_fd: c_int,
-        new_path: *const c_char,
-    ) -> std::io::Result<()>;
-
-    fn renameat2(
-        &self,
-        user_data: usize,
-        old_dir_fd: c_int,
-        old_path: *const c_char,
-        new_dir_fd: c_int,
-        new_path: *const c_char,
-        flags: c_uint,
-    ) -> std::io::Result<()>;
-
-    fn fsync(&self, user_data: usize, fd: c_int) -> std::io::Result<()>;
-
-    /// socket
-
-    fn socket(
-        &self,
-        user_data: usize,
-        domain: c_int,
-        ty: c_int,
-        protocol: c_int,
-    ) -> std::io::Result<()>;
-
-    fn accept(
-        &self,
-        user_data: usize,
-        socket: c_int,
-        address: *mut sockaddr,
-        address_len: *mut socklen_t,
-    ) -> std::io::Result<()>;
-
-    fn accept4(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        addr: *mut sockaddr,
-        len: *mut socklen_t,
-        flg: c_int,
-    ) -> std::io::Result<()>;
-
-    fn connect(
-        &self,
-        user_data: usize,
-        socket: c_int,
-        address: *const sockaddr,
-        len: socklen_t,
-    ) -> std::io::Result<()>;
-
-    fn shutdown(&self, user_data: usize, socket: c_int, how: c_int) -> std::io::Result<()>;
-
-    fn close(&self, user_data: usize, fd: c_int) -> std::io::Result<()>;
-
-    /// read
-
-    fn recv(
-        &self,
-        user_data: usize,
-        socket: c_int,
-        buf: *mut c_void,
-        len: size_t,
-        flags: c_int,
-    ) -> std::io::Result<()>;
-
-    fn read(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        buf: *mut c_void,
-        count: size_t,
-    ) -> std::io::Result<()>;
-
-    fn pread(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        buf: *mut c_void,
-        count: size_t,
-        offset: off_t,
-    ) -> std::io::Result<()>;
-
-    fn readv(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        iov: *const iovec,
-        iovcnt: c_int,
-    ) -> std::io::Result<()>;
-
-    fn preadv(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        iov: *const iovec,
-        iovcnt: c_int,
-        offset: off_t,
-    ) -> std::io::Result<()>;
-
-    fn recvmsg(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        msg: *mut msghdr,
-        flags: c_int,
-    ) -> std::io::Result<()>;
-
-    /// write
-
-    fn send(
-        &self,
-        user_data: usize,
-        socket: c_int,
-        buf: *const c_void,
-        len: size_t,
-        flags: c_int,
-    ) -> std::io::Result<()>;
-
-    #[allow(clippy::too_many_arguments)]
-    fn sendto(
-        &self,
-        user_data: usize,
-        socket: c_int,
-        buf: *const c_void,
-        len: size_t,
-        flags: c_int,
-        addr: *const sockaddr,
-        addrlen: socklen_t,
-    ) -> std::io::Result<()>;
-
-    fn write(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        buf: *const c_void,
-        count: size_t,
-    ) -> std::io::Result<()>;
-
-    fn pwrite(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        buf: *const c_void,
-        count: size_t,
-        offset: off_t,
-    ) -> std::io::Result<()>;
-
-    fn writev(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        iov: *const iovec,
-        iovcnt: c_int,
-    ) -> std::io::Result<()>;
-
-    fn pwritev(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        iov: *const iovec,
-        iovcnt: c_int,
-        offset: off_t,
-    ) -> std::io::Result<()>;
-
-    fn sendmsg(
-        &self,
-        user_data: usize,
-        fd: c_int,
-        msg: *const msghdr,
-        flags: c_int,
-    ) -> std::io::Result<()>;
-}
-
-pub struct OperatorImpl<'o> {
+pub struct Operator<'o> {
     inner: IoUring,
     backlog: Mutex<VecDeque<&'o Entry>>,
 }
 
-impl Debug for OperatorImpl<'_> {
+impl Debug for Operator<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Operator")
             .field("backlog", &self.backlog)
@@ -349,9 +125,9 @@ macro_rules! impl_if_support {
     };
 }
 
-impl OperatorImpl<'_> {
+impl Operator<'_> {
     pub fn new(_cpu: u32) -> std::io::Result<Self> {
-        Ok(OperatorImpl {
+        Ok(Operator {
             inner: IoUring::builder().build(1024)?,
             backlog: Mutex::new(VecDeque::new()),
         })
@@ -363,6 +139,15 @@ impl OperatorImpl<'_> {
             self.backlog.lock().unwrap().push_back(entry);
         }
         self.inner.submit().map(|_| ())
+    }
+
+    pub fn async_cancel(&self, user_data: usize) -> std::io::Result<()> {
+        impl_if_support!(*SUPPORT_ASYNC_CANCEL, {
+            let entry = AsyncCancel::new(user_data as u64)
+                .build()
+                .user_data(user_data as u64);
+            return self.push_sq(entry);
+        })
     }
 
     /// select impl
@@ -416,21 +201,10 @@ impl OperatorImpl<'_> {
             return Ok((count, cq));
         })
     }
-}
-
-impl Operator for OperatorImpl<'_> {
-    fn async_cancel(&self, user_data: usize) -> std::io::Result<()> {
-        impl_if_support!(*SUPPORT_ASYNC_CANCEL, {
-            let entry = AsyncCancel::new(user_data as u64)
-                .build()
-                .user_data(user_data as u64);
-            return self.push_sq(entry);
-        })
-    }
 
     /// poll
 
-    fn epoll_ctl(
+    pub fn epoll_ctl(
         &self,
         user_data: usize,
         epfd: c_int,
@@ -443,7 +217,7 @@ impl Operator for OperatorImpl<'_> {
                 Fd(epfd),
                 Fd(fd),
                 op,
-                event.cast_const() as u64 as *const epoll_event,
+                event as *const _ as u64 as *const epoll_event,
             )
             .build()
             .user_data(user_data as u64);
@@ -451,7 +225,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn poll_add(&self, user_data: usize, fd: c_int, flags: c_int) -> std::io::Result<()> {
+    pub fn poll_add(&self, user_data: usize, fd: c_int, flags: c_int) -> std::io::Result<()> {
         impl_if_support!(*SUPPORT_POLL_ADD, {
             let entry = PollAdd::new(Fd(fd), flags as u32)
                 .build()
@@ -460,7 +234,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn poll_remove(&self, user_data: usize) -> std::io::Result<()> {
+    pub fn poll_remove(&self, user_data: usize) -> std::io::Result<()> {
         impl_if_support!(*SUPPORT_POLL_REMOVE, {
             let entry = PollRemove::new(user_data as u64)
                 .build()
@@ -471,7 +245,7 @@ impl Operator for OperatorImpl<'_> {
 
     /// timeout
 
-    fn timeout_add(&self, user_data: usize, timeout: Option<Duration>) -> std::io::Result<()> {
+    pub fn timeout_add(&self, user_data: usize, timeout: Option<Duration>) -> std::io::Result<()> {
         if let Some(duration) = timeout {
             impl_if_support!(*SUPPORT_TIMEOUT_ADD, {
                 let timeout = Timespec::new()
@@ -484,7 +258,11 @@ impl Operator for OperatorImpl<'_> {
         Ok(())
     }
 
-    fn timeout_update(&self, user_data: usize, timeout: Option<Duration>) -> std::io::Result<()> {
+    pub fn timeout_update(
+        &self,
+        user_data: usize,
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
         if let Some(duration) = timeout {
             impl_if_support!(*SUPPORT_TIMEOUT_UPDATE, {
                 let timeout = Timespec::new()
@@ -499,7 +277,7 @@ impl Operator for OperatorImpl<'_> {
         self.timeout_remove(user_data)
     }
 
-    fn timeout_remove(&self, user_data: usize) -> std::io::Result<()> {
+    pub fn timeout_remove(&self, user_data: usize) -> std::io::Result<()> {
         impl_if_support!(*SUPPORT_TIMEOUT_REMOVE, {
             let entry = TimeoutRemove::new(user_data as u64).build();
             return self.push_sq(entry);
@@ -508,7 +286,7 @@ impl Operator for OperatorImpl<'_> {
 
     /// file IO
 
-    fn openat(
+    pub fn openat(
         &self,
         user_data: usize,
         dir_fd: c_int,
@@ -526,7 +304,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn mkdirat(
+    pub fn mkdirat(
         &self,
         user_data: usize,
         dir_fd: c_int,
@@ -542,7 +320,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn renameat(
+    pub fn renameat(
         &self,
         user_data: usize,
         old_dir_fd: c_int,
@@ -558,7 +336,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn renameat2(
+    pub fn renameat2(
         &self,
         user_data: usize,
         old_dir_fd: c_int,
@@ -576,7 +354,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn fsync(&self, user_data: usize, fd: c_int) -> std::io::Result<()> {
+    pub fn fsync(&self, user_data: usize, fd: c_int) -> std::io::Result<()> {
         impl_if_support!(*SUPPORT_FSYNC, {
             let entry = Fsync::new(Fd(fd)).build().user_data(user_data as u64);
             return self.push_sq(entry);
@@ -585,7 +363,7 @@ impl Operator for OperatorImpl<'_> {
 
     /// socket
 
-    fn socket(
+    pub fn socket(
         &self,
         user_data: usize,
         domain: c_int,
@@ -600,7 +378,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn accept(
+    pub fn accept(
         &self,
         user_data: usize,
         socket: c_int,
@@ -615,7 +393,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn accept4(
+    pub fn accept4(
         &self,
         user_data: usize,
         fd: c_int,
@@ -632,7 +410,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn connect(
+    pub fn connect(
         &self,
         user_data: usize,
         socket: c_int,
@@ -647,7 +425,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn shutdown(&self, user_data: usize, socket: c_int, how: c_int) -> std::io::Result<()> {
+    pub fn shutdown(&self, user_data: usize, socket: c_int, how: c_int) -> std::io::Result<()> {
         impl_if_support!(*SUPPORT_SHUTDOWN, {
             let entry = Shutdown::new(Fd(socket), how)
                 .build()
@@ -656,7 +434,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn close(&self, user_data: usize, fd: c_int) -> std::io::Result<()> {
+    pub fn close(&self, user_data: usize, fd: c_int) -> std::io::Result<()> {
         impl_if_support!(*SUPPORT_CLOSE, {
             let entry = Close::new(Fd(fd)).build().user_data(user_data as u64);
             return self.push_sq(entry);
@@ -665,7 +443,7 @@ impl Operator for OperatorImpl<'_> {
 
     /// read
 
-    fn recv(
+    pub fn recv(
         &self,
         user_data: usize,
         socket: c_int,
@@ -682,7 +460,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn read(
+    pub fn read(
         &self,
         user_data: usize,
         fd: c_int,
@@ -697,7 +475,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn pread(
+    pub fn pread(
         &self,
         user_data: usize,
         fd: c_int,
@@ -714,7 +492,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn readv(
+    pub fn readv(
         &self,
         user_data: usize,
         fd: c_int,
@@ -729,7 +507,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn preadv(
+    pub fn preadv(
         &self,
         user_data: usize,
         fd: c_int,
@@ -746,7 +524,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn recvmsg(
+    pub fn recvmsg(
         &self,
         user_data: usize,
         fd: c_int,
@@ -764,7 +542,7 @@ impl Operator for OperatorImpl<'_> {
 
     /// write
 
-    fn send(
+    pub fn send(
         &self,
         user_data: usize,
         socket: c_int,
@@ -781,7 +559,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn sendto(
+    pub fn sendto(
         &self,
         user_data: usize,
         socket: c_int,
@@ -802,7 +580,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn write(
+    pub fn write(
         &self,
         user_data: usize,
         fd: c_int,
@@ -817,7 +595,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn pwrite(
+    pub fn pwrite(
         &self,
         user_data: usize,
         fd: c_int,
@@ -834,7 +612,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn writev(
+    pub fn writev(
         &self,
         user_data: usize,
         fd: c_int,
@@ -849,7 +627,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn pwritev(
+    pub fn pwritev(
         &self,
         user_data: usize,
         fd: c_int,
@@ -866,7 +644,7 @@ impl Operator for OperatorImpl<'_> {
         })
     }
 
-    fn sendmsg(
+    pub fn sendmsg(
         &self,
         user_data: usize,
         fd: c_int,

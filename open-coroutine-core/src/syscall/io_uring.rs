@@ -109,8 +109,7 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         address: *const sockaddr,
         len: socklen_t,
     ) -> c_int {
-        //todo
-        impl_default!(self, connect, fn_ptr, socket, address, len)
+        impl_io_uring!(self, connect, fn_ptr, socket, address, len)
     }
 
     fn shutdown(
@@ -134,8 +133,7 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         len: size_t,
         flags: c_int,
     ) -> ssize_t {
-        //todo
-        impl_default!(self, recv, fn_ptr, socket, buf, len, flags)
+        impl_io_uring!(self, recv, fn_ptr, socket, buf, len, flags)
     }
 
     fn recvfrom(
@@ -220,8 +218,7 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         len: size_t,
         flags: c_int,
     ) -> ssize_t {
-        //todo
-        impl_default!(self, send, fn_ptr, socket, buf, len, flags)
+        impl_io_uring!(self, send, fn_ptr, socket, buf, len, flags)
     }
 
     fn sendto(
@@ -308,8 +305,7 @@ impl<I: LinuxSyscall> LinuxSyscall for IoUringLinuxSyscall<I> {
         fd: c_int,
         event: *mut epoll_event,
     ) -> c_int {
-        //todo
-        impl_default!(self, epoll_ctl, fn_ptr, epfd, op, fd, event)
+        impl_io_uring!(self, epoll_ctl, fn_ptr, epfd, op, fd, event)
     }
 
     fn accept4(

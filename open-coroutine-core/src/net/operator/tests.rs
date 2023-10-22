@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{io, ptr};
 
-use crate::net::operator::{Operator, OperatorImpl};
+use crate::net::operator::Operator;
 use io_uring::{opcode, squeue, types, IoUring, SubmissionQueue};
 use slab::Slab;
 
@@ -284,14 +284,13 @@ fn original() -> anyhow::Result<()> {
 }
 
 fn crate_server2(port: u16, server_started: Arc<AtomicBool>) -> anyhow::Result<()> {
-    let operator = OperatorImpl::new(0)?;
+    let operator = Operator::new(0)?;
     let listener = TcpListener::bind(("127.0.0.1", port))?;
 
     let mut bufpool = Vec::with_capacity(64);
     let mut buf_alloc = Slab::with_capacity(64);
     let mut token_alloc = Slab::with_capacity(64);
 
-    std::thread::sleep(Duration::from_secs(3));
     println!("listen {}", listener.local_addr()?);
     server_started.store(true, Ordering::Release);
 
