@@ -337,6 +337,24 @@ impl<'e> Pool<'e, JoinHandleImpl<'e>> for EventLoopImpl<'e> {
 
 impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
     fn wait_event(&self, timeout: Option<Duration>) -> std::io::Result<usize> {
+        if SchedulableCoroutine::current().is_some() {
+            return self.wait_just(timeout);
+        }
+        let left_time = if let Some(time) = timeout {
+            Some(
+                self.pool
+                    .try_timed_schedule(time)
+                    .map(Duration::from_nanos)?,
+            )
+        } else {
+            self.pool.try_schedule()?;
+            None
+        };
+        self.wait_just(left_time)
+    }
+
+    fn wait_just(&self, timeout: Option<Duration>) -> std::io::Result<usize> {
+        let mut timeout = timeout;
         if let Some(time) = timeout {
             if let Some(coroutine) = SchedulableCoroutine::current() {
                 if let Some(suspender) = SchedulableSuspender::current() {
@@ -368,22 +386,12 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
                     coroutine
                         .syscall((), syscall, SyscallState::Suspend(timeout_time))
                         .expect("change to syscall state failed !");
-                    //协程环境只yield，不执行任务
                     suspender.delay(time);
-                    return self.wait_just(Some(Duration::ZERO));
+                    //协程环境delay后直接重置timeout
+                    timeout = Some(Duration::ZERO);
                 }
             }
-            return self.wait_just(Some(
-                self.pool
-                    .try_timed_schedule(time)
-                    .map(Duration::from_nanos)?,
-            ));
         }
-        self.pool.try_schedule()?;
-        self.wait_just(None)
-    }
-
-    fn wait_just(&self, timeout: Option<Duration>) -> std::io::Result<usize> {
         cfg_if::cfg_if! {
             if #[cfg(target_os = "linux")] {
                 let net_syscall = Syscall::epoll_wait;
