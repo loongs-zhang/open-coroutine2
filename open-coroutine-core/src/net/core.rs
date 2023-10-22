@@ -136,7 +136,7 @@ impl EventLoops {
     }
 
     pub fn wait_event(timeout: Option<Duration>) -> std::io::Result<usize> {
-        EventLoops::next(true).0.wait_event(timeout)
+        EventLoops::next(true).0.wait_just(timeout)
     }
 
     pub fn wait_read_event(
@@ -154,7 +154,7 @@ impl EventLoops {
         if is_monitor {
             Self::wait_event(timeout)
         } else {
-            event_loop.wait_event(timeout)
+            event_loop.wait_just(timeout)
         }
     }
 
@@ -173,7 +173,7 @@ impl EventLoops {
         if is_monitor {
             Self::wait_event(timeout)
         } else {
-            event_loop.wait_event(timeout)
+            event_loop.wait_just(timeout)
         }
     }
 
