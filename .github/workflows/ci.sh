@@ -15,6 +15,13 @@ fi
 export RUST_TEST_THREADS=1
 export RUST_BACKTRACE=1
 
+# test open-coroutine-iouring mod
+if [ "${TARGET}" = "x86_64-unknown-linux-gnu" ]; then
+    cd "${PROJECT_DIR}"/open-coroutine-iouring
+    "${CARGO}" test --target "${TARGET}" --no-default-features
+    "${CARGO}" test --target "${TARGET}" --no-default-features --release
+fi
+
 # test open-coroutine-core mod
 cd "${PROJECT_DIR}"/open-coroutine-core
 "${CARGO}" test --target "${TARGET}" --no-default-features --features korosensei
