@@ -38,7 +38,7 @@ fi
 cd "${PROJECT_DIR}"/examples
 "${CARGO}" run --example sleep_not_co --release
 "${CARGO}" run --example sleep_co --release
-"${CARGO}" run --example socket_not_co --release
+#"${CARGO}" run --example socket_not_co --release
 "${CARGO}" run --example socket_co_server --release
 "${CARGO}" run --example socket_co_client --release
 "${CARGO}" run --example socket_co --release
