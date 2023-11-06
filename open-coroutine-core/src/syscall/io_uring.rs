@@ -79,8 +79,7 @@ impl<I: UnixSyscall> UnixSyscall for IoUringLinuxSyscall<I> {
         ty: c_int,
         protocol: c_int,
     ) -> c_int {
-        //todo
-        impl_default!(self, socket, fn_ptr, domain, ty, protocol)
+        impl_io_uring!(self, socket, fn_ptr, domain, ty, protocol)
     }
 
     fn listen(
@@ -316,7 +315,6 @@ impl<I: LinuxSyscall> LinuxSyscall for IoUringLinuxSyscall<I> {
         len: *mut socklen_t,
         flg: c_int,
     ) -> c_int {
-        //todo
-        impl_default!(self, accept4, fn_ptr, fd, addr, len, flg)
+        impl_io_uring!(self, accept4, fn_ptr, fd, addr, len, flg)
     }
 }

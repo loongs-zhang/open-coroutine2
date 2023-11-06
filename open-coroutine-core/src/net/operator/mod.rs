@@ -13,6 +13,7 @@ use once_cell::sync::Lazy;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::io::{Error, ErrorKind};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -21,6 +22,7 @@ mod tests;
 
 pub struct Operator<'o> {
     inner: IoUring,
+    entering: AtomicBool,
     backlog: Mutex<VecDeque<&'o Entry>>,
 }
 
@@ -129,6 +131,7 @@ impl Operator<'_> {
     pub fn new(_cpu: u32) -> std::io::Result<Self> {
         Ok(Operator {
             inner: IoUring::builder().build(1024)?,
+            entering: AtomicBool::new(false),
             backlog: Mutex::new(VecDeque::new()),
         })
     }
@@ -152,20 +155,23 @@ impl Operator<'_> {
 
     /// select impl
 
-    pub fn select(&self, timeout: Option<Duration>) -> std::io::Result<(usize, CompletionQueue)> {
+    pub fn select(&self, _timeout: Option<Duration>) -> std::io::Result<(usize, CompletionQueue)> {
         impl_if_support!(support_io_uring(), {
-            let mut sq = unsafe { self.inner.submission_shared() };
             let mut cq = unsafe { self.inner.completion_shared() };
-            if sq.is_empty() {
+            if self
+                .entering
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
                 return Ok((0, cq));
             }
-            self.timeout_add(0, timeout)?;
-            let count = match self.inner.submit_and_wait(1) {
+            let count = match self.inner.submit_and_wait(0) {
                 Ok(count) => count,
                 Err(err) => {
                     if err.raw_os_error() == Some(libc::EBUSY) {
                         0
                     } else {
+                        self.entering.store(false, Ordering::Release);
                         return Err(err);
                     }
                 }
@@ -173,6 +179,7 @@ impl Operator<'_> {
             cq.sync();
 
             // clean backlog
+            let mut sq = unsafe { self.inner.submission_shared() };
             loop {
                 if sq.is_full() {
                     match self.inner.submit() {
@@ -181,6 +188,7 @@ impl Operator<'_> {
                             if err.raw_os_error() == Some(libc::EBUSY) {
                                 break;
                             }
+                            self.entering.store(false, Ordering::Release);
                             return Err(err);
                         }
                     }
@@ -198,6 +206,7 @@ impl Operator<'_> {
                     None => break,
                 }
             }
+            self.entering.store(false, Ordering::Release);
             return Ok((count, cq));
         })
     }
@@ -217,7 +226,7 @@ impl Operator<'_> {
                 Fd(epfd),
                 Fd(fd),
                 op,
-                event as *const _ as u64 as *const epoll_event,
+                event.cast_const().cast::<epoll_event>(),
             )
             .build()
             .user_data(user_data as u64);
@@ -559,6 +568,7 @@ impl Operator<'_> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn sendto(
         &self,
         user_data: usize,

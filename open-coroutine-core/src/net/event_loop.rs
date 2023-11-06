@@ -26,9 +26,7 @@ cfg_if::cfg_if! {
         };
         use once_cell::sync::Lazy;
 
-        #[allow(clippy::type_complexity)]
-        static SYSCALL_WAIT_TABLE: Lazy<DashMap<usize, Arc<(Mutex<Option<ssize_t>>, Condvar)>>> =
-            Lazy::new(DashMap::new);
+        static SYSCALL_WAIT_TABLE: Lazy<DashMap<usize, ssize_t>> = Lazy::new(DashMap::new);
 
         macro_rules! wrap_result {
             ( $self: expr, $syscall:ident, $($arg: expr),* $(,)* ) => {{
@@ -47,21 +45,16 @@ cfg_if::cfg_if! {
                 $self.operator
                     .$syscall(user_data, $($arg, )*)
                     .map(|()| {
-                        let arc = Arc::new((Mutex::new(None), Condvar::new()));
-                        assert!(
-                            SYSCALL_WAIT_TABLE.insert(user_data, arc.clone()).is_none(),
-                            "The previous token was not retrieved in a timely manner"
-                        );
                         if let Some(suspender) = SchedulableSuspender::current() {
                             suspender.suspend();
                             // the syscall is done after callback
                         }
-                        let (lock, cvar) = &*arc;
-                        let syscall_result = cvar
-                            .wait_while(lock.lock().unwrap(), |&mut pending| pending.is_none())
-                            .unwrap()
-                            .unwrap();
-                        syscall_result as _
+                        loop {
+                            if let Some((_, syscall_result)) = SYSCALL_WAIT_TABLE.remove(&user_data) {
+                                return syscall_result as _;
+                            }
+                            _ = $self.wait_just(Some(std::time::Duration::from_millis(10)));
+                        }
                     })
             }};
         }
@@ -489,16 +482,13 @@ impl<'e> EventLoop<'e> for EventLoopImpl<'e> {
                     let mut r = result?;
                     if r.0 > 0 {
                         for cqe in &mut r.1 {
-                            let syscall_result = cqe.result();
+                            let syscall_result = cqe.result() as ssize_t;
                             let token = cqe.user_data() as usize;
                             // resolve completed read/write tasks
-                            if let Some((_, pair)) = SYSCALL_WAIT_TABLE.remove(&token) {
-                                let (lock, cvar) = &*pair;
-                                let mut pending = lock.lock().unwrap();
-                                *pending = Some(syscall_result as ssize_t);
-                                // notify the condvar that the value has changed.
-                                cvar.notify_one();
-                            }
+                            assert!(
+                                SYSCALL_WAIT_TABLE.insert(token, syscall_result).is_some(),
+                                "The previous token was not retrieved in a timely manner"
+                            );
                             if let Some(co_name) = Self::map_name(token) {
                                 //notify coroutine
                                 self.pool.try_resume(co_name).expect("has bug, notice !");

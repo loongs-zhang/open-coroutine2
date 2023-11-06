@@ -209,7 +209,7 @@ impl EventLoops {
         fd: c_int,
         event: *mut epoll_event,
     ) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.epoll_ctl(epfd, op, fd, event)
+        EventLoops::next(true).0.epoll_ctl(epfd, op, fd, event)
     }
 
     pub fn openat(
@@ -218,13 +218,13 @@ impl EventLoops {
         flags: c_int,
         mode: mode_t,
     ) -> std::io::Result<c_int> {
-        EventLoops::next(false)
+        EventLoops::next(true)
             .0
             .openat(dir_fd, pathname, flags, mode)
     }
 
     pub fn mkdirat(dir_fd: c_int, pathname: *const c_char, mode: mode_t) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.mkdirat(dir_fd, pathname, mode)
+        EventLoops::next(true).0.mkdirat(dir_fd, pathname, mode)
     }
 
     pub fn renameat(
@@ -233,7 +233,7 @@ impl EventLoops {
         new_dir_fd: c_int,
         new_path: *const c_char,
     ) -> std::io::Result<c_int> {
-        EventLoops::next(false)
+        EventLoops::next(true)
             .0
             .renameat(old_dir_fd, old_path, new_dir_fd, new_path)
     }
@@ -245,17 +245,17 @@ impl EventLoops {
         new_path: *const c_char,
         flags: c_uint,
     ) -> std::io::Result<c_int> {
-        EventLoops::next(false)
+        EventLoops::next(true)
             .0
             .renameat2(old_dir_fd, old_path, new_dir_fd, new_path, flags)
     }
 
     pub fn fsync(fd: c_int) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.fsync(fd)
+        EventLoops::next(true).0.fsync(fd)
     }
 
     pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.socket(domain, ty, protocol)
+        EventLoops::next(true).0.socket(domain, ty, protocol)
     }
 
     pub fn accept(
@@ -263,7 +263,7 @@ impl EventLoops {
         address: *mut sockaddr,
         address_len: *mut socklen_t,
     ) -> std::io::Result<c_int> {
-        EventLoops::next(false)
+        EventLoops::next(true)
             .0
             .accept(socket, address, address_len)
     }
@@ -274,7 +274,7 @@ impl EventLoops {
         len: *mut socklen_t,
         flg: c_int,
     ) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.accept4(fd, addr, len, flg)
+        EventLoops::next(true).0.accept4(fd, addr, len, flg)
     }
 
     pub fn connect(
@@ -282,15 +282,15 @@ impl EventLoops {
         address: *const sockaddr,
         len: socklen_t,
     ) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.connect(socket, address, len)
+        EventLoops::next(true).0.connect(socket, address, len)
     }
 
     pub fn shutdown(socket: c_int, how: c_int) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.shutdown(socket, how)
+        EventLoops::next(true).0.shutdown(socket, how)
     }
 
     pub fn close(fd: c_int) -> std::io::Result<c_int> {
-        EventLoops::next(false).0.close(fd)
+        EventLoops::next(true).0.close(fd)
     }
 
     pub fn recv(
@@ -299,11 +299,11 @@ impl EventLoops {
         len: size_t,
         flags: c_int,
     ) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.recv(socket, buf, len, flags)
+        EventLoops::next(true).0.recv(socket, buf, len, flags)
     }
 
     pub fn read(fd: c_int, buf: *mut c_void, count: size_t) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.read(fd, buf, count)
+        EventLoops::next(true).0.read(fd, buf, count)
     }
 
     pub fn pread(
@@ -312,11 +312,11 @@ impl EventLoops {
         count: size_t,
         offset: off_t,
     ) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.pread(fd, buf, count, offset)
+        EventLoops::next(true).0.pread(fd, buf, count, offset)
     }
 
     pub fn readv(fd: c_int, iov: *const iovec, iovcnt: c_int) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.readv(fd, iov, iovcnt)
+        EventLoops::next(true).0.readv(fd, iov, iovcnt)
     }
 
     pub fn preadv(
@@ -325,11 +325,11 @@ impl EventLoops {
         iovcnt: c_int,
         offset: off_t,
     ) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.preadv(fd, iov, iovcnt, offset)
+        EventLoops::next(true).0.preadv(fd, iov, iovcnt, offset)
     }
 
     pub fn recvmsg(fd: c_int, msg: *mut msghdr, flags: c_int) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.recvmsg(fd, msg, flags)
+        EventLoops::next(true).0.recvmsg(fd, msg, flags)
     }
 
     pub fn send(
@@ -338,7 +338,7 @@ impl EventLoops {
         len: size_t,
         flags: c_int,
     ) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.send(socket, buf, len, flags)
+        EventLoops::next(true).0.send(socket, buf, len, flags)
     }
 
     pub fn sendto(
@@ -349,13 +349,13 @@ impl EventLoops {
         addr: *const sockaddr,
         addrlen: socklen_t,
     ) -> std::io::Result<ssize_t> {
-        EventLoops::next(false)
+        EventLoops::next(true)
             .0
             .sendto(socket, buf, len, flags, addr, addrlen)
     }
 
     pub fn write(fd: c_int, buf: *const c_void, count: size_t) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.write(fd, buf, count)
+        EventLoops::next(true).0.write(fd, buf, count)
     }
 
     pub fn pwrite(
@@ -364,11 +364,11 @@ impl EventLoops {
         count: size_t,
         offset: off_t,
     ) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.pwrite(fd, buf, count, offset)
+        EventLoops::next(true).0.pwrite(fd, buf, count, offset)
     }
 
     pub fn writev(fd: c_int, iov: *const iovec, iovcnt: c_int) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.writev(fd, iov, iovcnt)
+        EventLoops::next(true).0.writev(fd, iov, iovcnt)
     }
 
     pub fn pwritev(
@@ -377,10 +377,10 @@ impl EventLoops {
         iovcnt: c_int,
         offset: off_t,
     ) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.pwritev(fd, iov, iovcnt, offset)
+        EventLoops::next(true).0.pwritev(fd, iov, iovcnt, offset)
     }
 
     pub fn sendmsg(fd: c_int, msg: *const msghdr, flags: c_int) -> std::io::Result<ssize_t> {
-        EventLoops::next(false).0.sendmsg(fd, msg, flags)
+        EventLoops::next(true).0.sendmsg(fd, msg, flags)
     }
 }
