@@ -166,7 +166,7 @@ where
         F: 'c,
         Self: Sized,
     {
-        let stack = DefaultStack::new(stack_size.max(crate::coroutine::page_size()))?;
+        let stack = DefaultStack::new(stack_size.max(crate::common::page_size()))?;
         #[cfg(feature = "logs")]
         let co_name = name.clone().leak();
         let inner = ScopedCoroutine::with_stack(stack, move |y, p| {

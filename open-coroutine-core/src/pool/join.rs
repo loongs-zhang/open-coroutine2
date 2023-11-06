@@ -92,7 +92,7 @@ mod tests {
             .name("test_join".to_string())
             .spawn(move || {
                 let pool = CoroutinePoolImpl::default();
-                _ = pool.change_blocker(crate::blocker::DelayBlocker::default());
+                _ = pool.change_blocker(crate::common::DelayBlocker::default());
                 let handle1 = pool.submit(
                     None,
                     |_| {
@@ -146,7 +146,7 @@ mod tests {
             .name("test_timed_join".to_string())
             .spawn(move || {
                 let pool = CoroutinePoolImpl::default();
-                _ = pool.change_blocker(crate::blocker::DelayBlocker::default());
+                _ = pool.change_blocker(crate::common::DelayBlocker::default());
                 let handle = pool.submit(
                     None,
                     |_| {

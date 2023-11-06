@@ -58,8 +58,8 @@ pub mod constants;
 /// Coroutine abstraction and impl.
 pub mod coroutine;
 
-/// Blocker abstraction and impl.
-pub mod blocker;
+/// Common traits and impl.
+pub mod common;
 
 /// Scheduler abstraction and impl.
 pub mod scheduler;

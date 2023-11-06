@@ -1,4 +1,5 @@
-use crate::coroutine::{Current, Named, StateMachine};
+use crate::common::{Current, Named};
+use crate::coroutine::StateMachine;
 use crate::net::core::EventLoops;
 use crate::net::selector::Selector;
 use crate::syscall::common::{reset_errno, set_errno};

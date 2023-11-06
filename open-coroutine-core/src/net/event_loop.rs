@@ -1,7 +1,7 @@
-use crate::blocker::Blocker;
-use crate::constants::{CoroutineState, PoolState, Syscall, SyscallState};
+use crate::common::{Blocker, Current, Named};
+use crate::constants::{CoroutineState, PoolState, Syscall, SyscallState, DEFAULT_STACK_SIZE};
 use crate::coroutine::suspender::SimpleDelaySuspender;
-use crate::coroutine::{Current, Named, StateMachine};
+use crate::coroutine::StateMachine;
 use crate::net::selector::{Selector, SelectorImpl};
 use crate::pool::join::JoinHandle;
 use crate::pool::task::TaskImpl;
@@ -116,7 +116,7 @@ impl EventLoopImpl<'_> {
                 min_size,
                 max_size,
                 keep_alive_time,
-                crate::blocker::DelayBlocker::default(),
+                crate::common::DelayBlocker::default(),
             ),
             selector: SelectorImpl::new()?,
             stop: Arc::new((Mutex::new(false), Condvar::new())),
@@ -162,7 +162,7 @@ impl Default for EventLoopImpl<'_> {
         Self::new(
             format!("open-coroutine-event-loop-{}", uuid::Uuid::new_v4()),
             1,
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
             0,
             65536,
             0,

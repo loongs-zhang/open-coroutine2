@@ -1,6 +1,7 @@
-use crate::constants::{CoroutineState, SyscallState};
+use crate::common::{Current, Named};
+use crate::constants::{CoroutineState, SyscallState, DEFAULT_STACK_SIZE};
 use crate::coroutine::suspender::{Suspender, SuspenderImpl};
-use crate::coroutine::{Coroutine, CoroutineImpl, Current, Named, SimpleCoroutine, StateMachine};
+use crate::coroutine::{Coroutine, CoroutineImpl, SimpleCoroutine, StateMachine};
 use crate::scheduler::listener::Listener;
 use dashmap::DashMap;
 use open_coroutine_queue::LocalQueue;
@@ -29,7 +30,7 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn init(&mut self);
 
     /// Set the default stack stack size for the coroutines in this scheduler.
-    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
+    /// If it has not been set, it will be `crate::constants::DEFAULT_STACK_SIZE`.
     fn set_stack_size(&self, stack_size: usize);
 
     /// Submit a closure to new coroutine, then the coroutine will be push into ready queue.
@@ -196,7 +197,7 @@ impl Default for SchedulerImpl<'_> {
     fn default() -> Self {
         Self::new(
             format!("open-coroutine-scheduler-{}", uuid::Uuid::new_v4()),
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
         )
     }
 }
@@ -250,8 +251,9 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     /// # Examples
     /// ```
     /// use std::time::Duration;
+    /// use open_coroutine_core::common::Current;
     /// use open_coroutine_core::constants::{CoroutineState, Syscall, SyscallState};
-    /// use open_coroutine_core::coroutine::{Current, StateMachine};
+    /// use open_coroutine_core::coroutine::StateMachine;
     /// use open_coroutine_core::coroutine::suspender::SimpleSuspender;
     /// use open_coroutine_core::scheduler::{SchedulableCoroutine, SchedulableSuspender, Scheduler, SchedulerImpl};
     ///

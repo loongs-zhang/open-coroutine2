@@ -1,5 +1,5 @@
+use crate::common::Current;
 use crate::constants::{Syscall, SyscallState};
-use crate::coroutine::Current;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl};
 use crate::scheduler::listener::Listener;
 use crate::scheduler::SchedulableCoroutine;

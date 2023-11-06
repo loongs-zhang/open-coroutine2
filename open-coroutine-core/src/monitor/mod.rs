@@ -1,9 +1,9 @@
-use crate::blocker::Blocker;
-use crate::constants::{CoroutineState, MONITOR_CPU};
-use crate::coroutine::suspender::SimpleSuspender;
 #[cfg(feature = "logs")]
-use crate::coroutine::Named;
-use crate::coroutine::{Current, StateMachine};
+use crate::common::Named;
+use crate::common::{Blocker, Current};
+use crate::constants::{CoroutineState, DEFAULT_STACK_SIZE, MONITOR_CPU};
+use crate::coroutine::suspender::SimpleSuspender;
+use crate::coroutine::StateMachine;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
 use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender};
 use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
@@ -86,7 +86,7 @@ impl Monitor for MonitorImpl {
         if ret == 0 {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "net")] {
-                    let blocker = Box::new(crate::blocker::MonitorNetBlocker::new());
+                    let blocker = Box::new(crate::common::MonitorNetBlocker::new());
                 } else {
                     let blocker = Box::<crate::blocker::CondvarBlocker>::default();
                 }
@@ -140,11 +140,11 @@ impl Monitor for MonitorImpl {
                         let pool = CoroutinePoolImpl::new(
                             String::from("open-coroutine-monitor"),
                             monitor.cpu,
-                            crate::coroutine::DEFAULT_STACK_SIZE,
+                            DEFAULT_STACK_SIZE,
                             1,
                             1,
                             0,
-                            crate::blocker::DelayBlocker::default(),
+                            crate::common::DelayBlocker::default(),
                         );
                         let tasks = unsafe { &*monitor.tasks.get() };
                         while monitor.run.load(Ordering::Acquire) || !tasks.is_empty() {
@@ -240,14 +240,13 @@ impl Monitor for MonitorImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blocker::{CondvarBlocker, DelayBlocker, DELAY_BLOCKER_NAME};
-    use crate::coroutine::Named;
+    use crate::common::{CondvarBlocker, DelayBlocker, Named, DELAY_BLOCKER_NAME};
 
     #[test]
     fn change_blocker() {
         cfg_if::cfg_if! {
             if #[cfg(feature = "net")] {
-                let blocker = crate::blocker::MonitorNetBlocker::new();
+                let blocker = crate::common::MonitorNetBlocker::new();
             } else {
                 let blocker = crate::blocker::CondvarBlocker::default();
             }
