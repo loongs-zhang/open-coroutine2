@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::{DelaySuspender, Suspender, SuspenderImpl};
 use crate::coroutine::{Coroutine, Current, Named, StateMachine, COROUTINE};

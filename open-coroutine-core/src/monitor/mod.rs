@@ -1,5 +1,5 @@
 use crate::blocker::Blocker;
-use crate::coroutine::constants::CoroutineState;
+use crate::constants::{CoroutineState, MONITOR_CPU};
 use crate::coroutine::suspender::SimpleSuspender;
 #[cfg(feature = "logs")]
 use crate::coroutine::Named;
@@ -92,7 +92,7 @@ impl Monitor for MonitorImpl {
                 }
             }
             let ptr: &'m mut MonitorImpl = Box::leak(Box::new(MonitorImpl {
-                cpu: crate::MONITOR_CPU,
+                cpu: MONITOR_CPU,
                 tasks: UnsafeCell::new(TimerList::default()),
                 clean_queue: UnsafeCell::new(Vec::new()),
                 run: AtomicBool::default(),
@@ -149,13 +149,11 @@ impl Monitor for MonitorImpl {
                         let tasks = unsafe { &*monitor.tasks.get() };
                         while monitor.run.load(Ordering::Acquire) || !tasks.is_empty() {
                             //只遍历，不删除，如果抢占调度失败，会在1ms后不断重试，相当于主动检测
-                            let mut task_iter = tasks.iter();
-                            while let Some((exec_time, entry)) = task_iter.next() {
+                            for (exec_time, entry) in tasks.iter() {
                                 if open_coroutine_timer::now() < *exec_time {
                                     break;
                                 }
-                                let mut entry_iter = entry.iter();
-                                while let Some(node) = entry_iter.next() {
+                                for node in entry.iter() {
                                     _ = pool.submit(
                                         None,
                                         |_| {

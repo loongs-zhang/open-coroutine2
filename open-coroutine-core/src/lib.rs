@@ -52,6 +52,9 @@ pub mod log;
 #[cfg(target_os = "linux")]
 pub mod version;
 
+/// Constants.
+pub mod constants;
+
 /// Coroutine abstraction and impl.
 pub mod coroutine;
 
@@ -63,9 +66,6 @@ pub mod scheduler;
 
 /// Coroutine pool abstraction and impl.
 pub mod pool;
-
-/// CPU bound to monitor
-pub const MONITOR_CPU: usize = 0;
 
 /// Monitor abstraction and impl.
 #[cfg(all(unix, feature = "preemptive-schedule"))]

@@ -1,7 +1,7 @@
 use crate::blocker::Blocker;
+use crate::constants::PoolState;
 use crate::coroutine::suspender::SimpleSuspender;
 use crate::coroutine::{Current, Named};
-use crate::pool::constants::PoolState;
 use crate::pool::creator::CoroutineCreator;
 use crate::pool::join::{JoinHandle, JoinHandleImpl};
 use crate::pool::task::{Task, TaskImpl};
@@ -15,9 +15,6 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-
-/// Constants.
-pub mod constants;
 
 /// Task abstraction and impl.
 pub mod task;

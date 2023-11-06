@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::Suspender;
 use std::cell::RefCell;
@@ -7,9 +7,6 @@ use std::ffi::c_void;
 use std::fmt::Debug;
 use std::panic::UnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-/// Constants.
-pub mod constants;
 
 /// Coroutine local abstraction.
 pub mod local;

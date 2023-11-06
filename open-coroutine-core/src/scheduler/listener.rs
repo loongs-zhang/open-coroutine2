@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{Syscall, SyscallState};
+use crate::constants::{Syscall, SyscallState};
 use crate::scheduler::{SchedulableCoroutine, SchedulerImpl};
 use std::fmt::Debug;
 

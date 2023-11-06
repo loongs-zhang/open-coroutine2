@@ -1,9 +1,8 @@
 use crate::blocker::Blocker;
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::constants::{CoroutineState, PoolState, Syscall, SyscallState};
 use crate::coroutine::suspender::SimpleDelaySuspender;
 use crate::coroutine::{Current, Named, StateMachine};
 use crate::net::selector::{Selector, SelectorImpl};
-use crate::pool::constants::PoolState;
 use crate::pool::join::JoinHandle;
 use crate::pool::task::TaskImpl;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};

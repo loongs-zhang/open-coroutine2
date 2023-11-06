@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{Syscall, SyscallState};
+use crate::constants::{Syscall, SyscallState};
 use crate::coroutine::Current;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl};
 use crate::scheduler::listener::Listener;

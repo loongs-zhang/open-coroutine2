@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{CoroutineState, SyscallState};
+use crate::constants::{CoroutineState, SyscallState};
 use crate::coroutine::suspender::{Suspender, SuspenderImpl};
 use crate::coroutine::{Coroutine, CoroutineImpl, Current, Named, SimpleCoroutine, StateMachine};
 use crate::scheduler::listener::Listener;
@@ -250,7 +250,7 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     /// # Examples
     /// ```
     /// use std::time::Duration;
-    /// use open_coroutine_core::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+    /// use open_coroutine_core::constants::{CoroutineState, Syscall, SyscallState};
     /// use open_coroutine_core::coroutine::{Current, StateMachine};
     /// use open_coroutine_core::coroutine::suspender::SimpleSuspender;
     /// use open_coroutine_core::scheduler::{SchedulableCoroutine, SchedulableSuspender, Scheduler, SchedulerImpl};
