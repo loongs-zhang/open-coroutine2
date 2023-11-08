@@ -1,5 +1,6 @@
 use crate::coroutine::Current;
-use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::panic::UnwindSafe;
 use std::time::Duration;
@@ -45,17 +46,19 @@ pub trait DelaySuspender<'s>: Suspender<'s> {
 }
 
 thread_local! {
-    static TIMESTAMP: Cell<u64> = Cell::new(0);
+    static TIMESTAMP: RefCell<VecDeque<u64>> = RefCell::new(VecDeque::new());
 }
 
 impl<'s, DelaySuspenderImpl: ?Sized + Suspender<'s>> DelaySuspender<'s> for DelaySuspenderImpl {
     fn until_with(&self, arg: Self::Yield, timestamp: u64) -> Self::Resume {
-        TIMESTAMP.with(|c| c.set(timestamp));
+        TIMESTAMP.with(|s| {
+            s.borrow_mut().push_front(timestamp);
+        });
         self.suspend_with(arg)
     }
 
     fn timestamp() -> u64 {
-        TIMESTAMP.with(Cell::take)
+        TIMESTAMP.with(|s| s.borrow_mut().pop_front()).unwrap_or(0)
     }
 }
 
@@ -81,7 +84,33 @@ impl<'s, SimpleDelaySuspenderImpl: ?Sized + DelaySuspender<'s, Yield = ()>> Simp
 }
 
 thread_local! {
-    pub(crate) static SUSPENDER: Cell<*const c_void> = Cell::new(std::ptr::null());
+    static SUSPENDER: RefCell<VecDeque<*const c_void>> = RefCell::new(VecDeque::new());
+}
+
+impl<'s, Param, Yield> Current<'s> for SuspenderImpl<'s, Param, Yield>
+where
+    Param: UnwindSafe,
+    Yield: UnwindSafe,
+{
+    #[allow(clippy::ptr_as_ptr)]
+    fn init_current(current: &SuspenderImpl<'s, Param, Yield>) {
+        SUSPENDER.with(|s| {
+            s.borrow_mut()
+                .push_front(current as *const _ as *const c_void);
+        });
+    }
+
+    fn current() -> Option<&'s Self> {
+        SUSPENDER.with(|s| {
+            s.borrow()
+                .front()
+                .map(|ptr| unsafe { &*(*ptr).cast::<SuspenderImpl<'s, Param, Yield>>() })
+        })
+    }
+
+    fn clean_current() {
+        SUSPENDER.with(|s| _ = s.borrow_mut().pop_front());
+    }
 }
 
 #[cfg(feature = "korosensei")]
@@ -89,42 +118,16 @@ pub use korosensei::SuspenderImpl;
 #[allow(missing_docs, missing_debug_implementations)]
 #[cfg(feature = "korosensei")]
 mod korosensei {
-    use crate::coroutine::suspender::{Suspender, SUSPENDER};
+    use crate::coroutine::suspender::Suspender;
     use crate::coroutine::Current;
     use corosensei::Yielder;
-    use std::ffi::c_void;
     use std::panic::UnwindSafe;
 
+    #[repr(transparent)]
     pub struct SuspenderImpl<'s, Param, Yield>(pub(crate) &'s Yielder<Param, Yield>)
     where
         Param: UnwindSafe,
         Yield: UnwindSafe;
-
-    impl<'s, Param, Yield> Current<'s> for SuspenderImpl<'s, Param, Yield>
-    where
-        Param: UnwindSafe,
-        Yield: UnwindSafe,
-    {
-        #[allow(clippy::ptr_as_ptr)]
-        fn init_current(current: &SuspenderImpl<'s, Param, Yield>) {
-            SUSPENDER.with(|c| c.set(current as *const _ as *const c_void));
-        }
-
-        fn current() -> Option<&'s Self> {
-            SUSPENDER.with(|boxed| {
-                let ptr = boxed.get();
-                if ptr.is_null() {
-                    None
-                } else {
-                    Some(unsafe { &*(ptr).cast::<SuspenderImpl<'s, Param, Yield>>() })
-                }
-            })
-        }
-
-        fn clean_current() {
-            SUSPENDER.with(|boxed| boxed.set(std::ptr::null()));
-        }
-    }
 
     impl<'s, Param, Yield> Suspender<'s> for SuspenderImpl<'s, Param, Yield>
     where
