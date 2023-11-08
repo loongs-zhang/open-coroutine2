@@ -240,7 +240,7 @@ impl Monitor for MonitorImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{CondvarBlocker, DelayBlocker, DELAY_BLOCKER_NAME};
+    use crate::common::{CondvarBlocker, DelayBlocker, Named, DELAY_BLOCKER_NAME};
 
     #[test]
     fn change_blocker() {
