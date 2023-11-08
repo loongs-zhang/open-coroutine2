@@ -88,7 +88,7 @@ impl Monitor for MonitorImpl {
                 if #[cfg(feature = "net")] {
                     let blocker = Box::new(crate::common::MonitorNetBlocker::new());
                 } else {
-                    let blocker = Box::<crate::blocker::CondvarBlocker>::default();
+                    let blocker = Box::<crate::common::CondvarBlocker>::default();
                 }
             }
             let ptr: &'m mut MonitorImpl = Box::leak(Box::new(MonitorImpl {
@@ -240,7 +240,7 @@ impl Monitor for MonitorImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{CondvarBlocker, DelayBlocker, Named, DELAY_BLOCKER_NAME};
+    use crate::common::{CondvarBlocker, DelayBlocker, DELAY_BLOCKER_NAME};
 
     #[test]
     fn change_blocker() {
@@ -248,7 +248,7 @@ mod tests {
             if #[cfg(feature = "net")] {
                 let blocker = crate::common::MonitorNetBlocker::new();
             } else {
-                let blocker = crate::blocker::CondvarBlocker::default();
+                let blocker = crate::common::CondvarBlocker::default();
             }
         }
         let previous = MonitorImpl::change_blocker(DelayBlocker::default());
