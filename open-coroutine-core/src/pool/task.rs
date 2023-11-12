@@ -1,4 +1,4 @@
-use crate::coroutine::Named;
+use crate::common::Named;
 use std::cell::Cell;
 use std::fmt::{Debug, Formatter};
 use std::panic::UnwindSafe;

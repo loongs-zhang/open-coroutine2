@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::{DelaySuspender, Suspender, SuspenderImpl};
 use crate::coroutine::{Coroutine, Current, Named, StateMachine, COROUTINE};
@@ -166,7 +166,7 @@ where
         F: 'c,
         Self: Sized,
     {
-        let stack = DefaultStack::new(stack_size.max(crate::coroutine::page_size()))?;
+        let stack = DefaultStack::new(stack_size.max(crate::common::page_size()))?;
         #[cfg(feature = "logs")]
         let co_name = name.clone().leak();
         let inner = ScopedCoroutine::with_stack(stack, move |y, p| {

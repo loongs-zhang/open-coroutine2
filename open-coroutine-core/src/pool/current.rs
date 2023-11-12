@@ -1,4 +1,4 @@
-use crate::coroutine::Current;
+use crate::common::Current;
 use crate::pool::CoroutinePoolImpl;
 use std::ffi::c_void;
 
@@ -40,7 +40,8 @@ impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coroutine::Named;
+    use crate::common::Named;
+    use crate::constants::DEFAULT_STACK_SIZE;
     use crate::pool::{CoroutinePool, Pool};
     use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender, SchedulerImpl};
 
@@ -50,11 +51,11 @@ mod tests {
         let pool = CoroutinePoolImpl::new(
             String::from(parent_name),
             1,
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
             0,
             65536,
             0,
-            crate::blocker::SleepBlocker::default(),
+            crate::common::SleepBlocker::default(),
         );
         _ = pool.submit(
             None,
@@ -75,11 +76,11 @@ mod tests {
                 let pool = CoroutinePoolImpl::new(
                     String::from(child_name),
                     1,
-                    crate::coroutine::DEFAULT_STACK_SIZE,
+                    DEFAULT_STACK_SIZE,
                     0,
                     65536,
                     0,
-                    crate::blocker::SleepBlocker::default(),
+                    crate::common::SleepBlocker::default(),
                 );
                 _ = pool.submit(
                     None,

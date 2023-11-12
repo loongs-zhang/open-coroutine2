@@ -1,7 +1,6 @@
-use crate::blocker::Blocker;
+use crate::common::{Blocker, Current, Named};
+use crate::constants::{PoolState, DEFAULT_STACK_SIZE};
 use crate::coroutine::suspender::SimpleSuspender;
-use crate::coroutine::{Current, Named};
-use crate::pool::constants::PoolState;
 use crate::pool::creator::CoroutineCreator;
 use crate::pool::join::{JoinHandle, JoinHandleImpl};
 use crate::pool::task::{Task, TaskImpl};
@@ -15,9 +14,6 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-
-/// Constants.
-pub mod constants;
 
 /// Task abstraction and impl.
 pub mod task;
@@ -164,7 +160,7 @@ pub trait CoroutinePool<'p>: Current<'p> + Pool<'p, JoinHandleImpl<'p>> {
     fn init(&mut self);
 
     /// Set the default stack stack size for the coroutines in this pool.
-    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
+    /// If it has not been set, it will be `crate::constants::DEFAULT_STACK_SIZE`.
     fn set_stack_size(&self, stack_size: usize);
 
     /// Resume a coroutine from the system call table to the ready queue,
@@ -283,11 +279,11 @@ impl Named for CoroutinePoolImpl<'_> {
 
 impl Default for CoroutinePoolImpl<'_> {
     fn default() -> Self {
-        let blocker = crate::blocker::SleepBlocker::default();
+        let blocker = crate::common::SleepBlocker::default();
         Self::new(
             format!("open-coroutine-pool-{}", uuid::Uuid::new_v4()),
             1,
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
             0,
             65536,
             0,
@@ -427,7 +423,7 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         loop {
             #[allow(box_pointers)]
             if let Ok(blocker) = self.blocker.try_borrow() {
-                if crate::blocker::SLEEP_BLOCKER_NAME == blocker.get_name() {
+                if crate::common::SLEEP_BLOCKER_NAME == blocker.get_name() {
                     return Err(Error::new(
                         ErrorKind::InvalidInput,
                         "You need change to another blocker !",
