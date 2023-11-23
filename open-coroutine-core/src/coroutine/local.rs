@@ -2,6 +2,7 @@ use dashmap::DashMap;
 use std::ffi::c_void;
 
 /// A struct for coroutines handles local args.
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct CoroutineLocal<'c>(DashMap<&'c str, usize>);
 

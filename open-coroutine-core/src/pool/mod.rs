@@ -220,6 +220,7 @@ pub trait CoroutinePool<'p>: Current<'p> + Pool<'p, JoinHandleImpl<'p>> {
 }
 
 #[allow(missing_docs, box_pointers, dead_code)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct CoroutinePoolImpl<'p> {
     //绑定到哪个CPU核心

@@ -2,6 +2,7 @@
 use crate::syscall::LinuxSyscall;
 use crate::syscall::UnixSyscall;
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct RawLinuxSyscall {}
 

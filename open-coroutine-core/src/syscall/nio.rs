@@ -17,6 +17,7 @@ use std::io::Error;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct NioLinuxSyscall<I: UnixSyscall> {
     inner: I,

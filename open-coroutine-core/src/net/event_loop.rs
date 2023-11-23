@@ -88,6 +88,7 @@ impl JoinHandle for JoinHandleImpl<'_> {
     }
 }
 
+#[repr(C)]
 #[derive(Debug)]
 pub struct EventLoopImpl<'e> {
     cpu: usize,

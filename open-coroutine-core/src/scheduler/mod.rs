@@ -108,6 +108,7 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
 }
 
 #[allow(missing_docs, box_pointers)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct SchedulerImpl<'s> {
     name: String,

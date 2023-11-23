@@ -4,19 +4,21 @@ use crate::common::{Blocker, Current};
 use crate::constants::{CoroutineState, DEFAULT_STACK_SIZE, MONITOR_CPU};
 use crate::coroutine::suspender::SimpleSuspender;
 use crate::coroutine::StateMachine;
+use crate::monitor::node::TaskNode;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
 use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender};
-use nix::sys::pthread::{pthread_kill, pthread_self, Pthread};
+use nix::sys::pthread::pthread_kill;
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use open_coroutine_timer::TimerList;
 use std::cell::{RefCell, UnsafeCell};
-use std::ffi::c_void;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
+
+mod node;
 
 pub(crate) mod creator;
 
@@ -48,14 +50,8 @@ pub trait Monitor {
     fn remove(&self, timestamp: u64, coroutine: &SchedulableCoroutine);
 }
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-struct TaskNode {
-    timestamp: u64,
-    pthread: Pthread,
-    coroutine: *const c_void,
-}
-
 #[allow(missing_docs, box_pointers)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct MonitorImpl {
     cpu: usize,
@@ -153,21 +149,22 @@ impl Monitor for MonitorImpl {
                                 if open_coroutine_timer::now() < *exec_time {
                                     break;
                                 }
+                                if entry.is_empty() {
+                                    continue;
+                                }
                                 for node in entry.iter() {
                                     _ = pool.submit(
                                         None,
                                         |_| {
-                                            let coroutine = unsafe {
-                                                &*(node.coroutine.cast::<SchedulableCoroutine>())
-                                            };
+                                            let coroutine = node.coroutine();
                                             if CoroutineState::Running == coroutine.state() {
                                                 //只对陷入重度计算的协程发送信号抢占，对陷入执行系统调用的协程
                                                 //不发送信号(如果发送信号，会打断系统调用，进而降低总体性能)
-                                                if pthread_kill(node.pthread, Signal::SIGURG)
+                                                if pthread_kill(node.pthread(), Signal::SIGURG)
                                                     .is_err()
                                                 {
                                                     crate::error!("Attempt to preempt scheduling for the coroutine:{} in thread:{} failed !",
-                                                                coroutine.get_name(), node.pthread);
+                                                                coroutine.get_name(), node.pthread());
                                                 }
                                             }
                                             None
@@ -181,7 +178,7 @@ impl Monitor for MonitorImpl {
                                 let queue = unsafe { &mut *monitor.clean_queue.get() };
                                 let tasks = unsafe { &mut *monitor.tasks.get() };
                                 while let Some(node) = queue.pop() {
-                                    let timestamp= node.timestamp;
+                                    let timestamp= node.timestamp();
                                     if let Some(entry) = tasks.get_entry(&timestamp) {
                                         _ = entry.remove(&node);
                                         if entry.is_empty() {
@@ -199,8 +196,8 @@ impl Monitor for MonitorImpl {
                                 }
                             }
                         }
-                        _ = pool.stop(Duration::from_secs(30));
                         crate::warn!("open-coroutine-monitor has exited");
+                        _ = pool.stop(Duration::from_secs(30));
                     })
                     .map_err(|e| Error::new(ErrorKind::Other, format!("{e:?}")))?,
             );
@@ -215,24 +212,13 @@ impl Monitor for MonitorImpl {
     fn submit(&self, timestamp: u64, coroutine: &SchedulableCoroutine) -> std::io::Result<()> {
         self.start()?;
         let tasks = unsafe { &mut *self.tasks.get() };
-        tasks.insert(
-            timestamp,
-            TaskNode {
-                timestamp,
-                pthread: pthread_self(),
-                coroutine: (coroutine as *const SchedulableCoroutine).cast::<c_void>(),
-            },
-        );
+        tasks.insert(timestamp, TaskNode::new(timestamp, coroutine));
         Ok(())
     }
 
     fn remove(&self, timestamp: u64, coroutine: &SchedulableCoroutine) {
         let queue = unsafe { &mut *self.clean_queue.get() };
-        queue.push(TaskNode {
-            timestamp,
-            pthread: pthread_self(),
-            coroutine: (coroutine as *const SchedulableCoroutine).cast::<c_void>(),
-        });
+        queue.push(TaskNode::new(timestamp, coroutine));
     }
 }
 

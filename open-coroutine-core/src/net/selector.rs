@@ -39,6 +39,7 @@ pub trait Selector: Debug + Default {
 }
 
 /// Event driven impl.
+#[repr(C)]
 #[derive(Debug)]
 pub struct SelectorImpl(Poller);
 

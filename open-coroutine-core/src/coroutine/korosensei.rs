@@ -21,6 +21,7 @@ cfg_if::cfg_if! {
     }
 }
 
+#[repr(C)]
 pub struct CoroutineImpl<'c, Param, Yield, Return>
 where
     Param: UnwindSafe,
@@ -92,7 +93,6 @@ where
 impl<Param, Yield, Return> Eq for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -101,7 +101,6 @@ where
 impl<Param, Yield, Return> PartialEq<Self> for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -113,7 +112,6 @@ where
 impl<Param, Yield, Return> Ord for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -125,7 +123,6 @@ where
 impl<Param, Yield, Return> PartialOrd<Self> for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -137,7 +134,6 @@ where
 impl<Param, Yield, Return> Named for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
