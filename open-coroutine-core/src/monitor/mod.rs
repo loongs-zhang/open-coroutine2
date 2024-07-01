@@ -231,7 +231,7 @@ mod tests {
             if #[cfg(feature = "net")] {
                 let blocker = crate::common::MonitorNetBlocker::new();
             } else {
-                let blocker = crate::common::CondvarBlocker::default();
+                let blocker = CondvarBlocker::default();
             }
         }
         let previous = MonitorImpl::change_blocker(DelayBlocker::default());
