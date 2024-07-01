@@ -50,7 +50,7 @@ pub trait Monitor {
     fn remove(&self, timestamp: u64, coroutine: &SchedulableCoroutine);
 }
 
-#[allow(missing_docs, box_pointers)]
+#[allow(missing_docs)]
 #[repr(C)]
 #[derive(Debug)]
 pub struct MonitorImpl {
@@ -75,7 +75,7 @@ extern "C" fn sigurg_handler(_: libc::c_int) {
 }
 
 impl Monitor for MonitorImpl {
-    #[allow(unsafe_code, trivial_casts, box_pointers)]
+    #[allow(unsafe_code, trivial_casts)]
     fn get_instance<'m>() -> &'m Self {
         static MONITOR: AtomicUsize = AtomicUsize::new(0);
         let mut ret = MONITOR.load(Ordering::Relaxed);
@@ -95,13 +95,12 @@ impl Monitor for MonitorImpl {
                 monitor: UnsafeCell::new(MaybeUninit::uninit()),
                 blocker: RefCell::new(blocker),
             }));
-            ret = ptr as *mut MonitorImpl as usize;
+            ret = std::ptr::from_mut::<MonitorImpl>(ptr) as usize;
             MONITOR.store(ret, Ordering::Relaxed);
         }
         unsafe { &*(ret as *mut MonitorImpl) }
     }
 
-    #[allow(box_pointers)]
     fn change_blocker(blocker: impl Blocker + 'static) -> Box<dyn Blocker> {
         Self::get_instance().blocker.replace(Box::new(blocker))
     }
@@ -145,14 +144,14 @@ impl Monitor for MonitorImpl {
                         let tasks = unsafe { &*monitor.tasks.get() };
                         while monitor.run.load(Ordering::Acquire) || !tasks.is_empty() {
                             //只遍历，不删除，如果抢占调度失败，会在1ms后不断重试，相当于主动检测
-                            for (exec_time, entry) in tasks.iter() {
+                            for (exec_time, entry) in tasks {
                                 if open_coroutine_timer::now() < *exec_time {
                                     break;
                                 }
                                 if entry.is_empty() {
                                     continue;
                                 }
-                                for node in entry.iter() {
+                                for node in entry {
                                     _ = pool.submit(
                                         None,
                                         |_| {
@@ -189,7 +188,6 @@ impl Monitor for MonitorImpl {
                             }
                             //monitor线程不执行协程计算任务，每次循环至少wait 1ms
                             loop {
-                                #[allow(box_pointers)]
                                 if let Ok(blocker) = monitor.blocker.try_borrow() {
                                     blocker.block(Duration::from_millis(1));
                                     break;
@@ -222,7 +220,6 @@ impl Monitor for MonitorImpl {
     }
 }
 
-#[allow(box_pointers)]
 #[cfg(test)]
 mod tests {
     use super::*;

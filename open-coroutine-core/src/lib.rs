@@ -3,7 +3,6 @@
     // https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html
     anonymous_parameters,
     bare_trait_objects,
-    box_pointers,
     // elided_lifetimes_in_paths, // allow anonymous lifetime
     missing_copy_implementations,
     missing_debug_implementations,
@@ -72,12 +71,7 @@ pub mod pool;
 pub mod monitor;
 
 /// net abstraction and impl.
-#[allow(
-    missing_docs,
-    box_pointers,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc
-)]
+#[allow(missing_docs, clippy::missing_errors_doc, clippy::missing_panics_doc)]
 #[cfg(feature = "net")]
 pub mod net;
 

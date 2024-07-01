@@ -73,7 +73,7 @@ where
     fn init_current(current: &CoroutineImpl<'c, Param, Yield, Return>) {
         COROUTINE.with(|s| {
             s.borrow_mut()
-                .push_front(current as *const _ as *const c_void);
+                .push_front(std::ptr::from_ref(current) as *const c_void);
         });
     }
 
@@ -168,7 +168,6 @@ where
         let inner = ScopedCoroutine::with_stack(stack, move |y, p| {
             let suspender = SuspenderImpl(y);
             SuspenderImpl::<Param, Yield>::init_current(&suspender);
-            #[allow(box_pointers)]
             let r = std::panic::catch_unwind(AssertUnwindSafe(|| f(&suspender, p))).map_err(|e| {
                 let message = *e
                     .downcast_ref::<&'static str>()
