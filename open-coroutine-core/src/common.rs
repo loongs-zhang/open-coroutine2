@@ -57,6 +57,7 @@ pub trait Blocker: Debug + Named {
 }
 
 #[allow(missing_docs)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct DelayBlocker {}
 
@@ -78,6 +79,7 @@ impl Blocker for DelayBlocker {
 }
 
 #[allow(missing_docs)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct SleepBlocker {}
 
@@ -97,6 +99,7 @@ impl Blocker for SleepBlocker {
 }
 
 #[allow(missing_docs)]
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct CondvarBlocker(Mutex<()>, Condvar);
 
@@ -121,6 +124,7 @@ cfg_if::cfg_if! {
         use std::sync::Arc;
 
         #[allow(missing_docs)]
+        #[repr(C)]
         #[derive(Debug)]
         pub struct NetBlocker(pub Arc<EventLoopImpl<'static>>);
 
@@ -147,6 +151,7 @@ cfg_if::cfg_if! {
         use crate::pool::Pool;
 
         #[allow(missing_docs)]
+        #[repr(C)]
         #[derive(Debug)]
         pub(crate) struct MonitorNetBlocker(Arc<EventLoopImpl<'static>>);
 

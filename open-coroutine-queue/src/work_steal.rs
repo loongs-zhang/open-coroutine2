@@ -31,13 +31,13 @@ impl<T: Debug> Drop for WorkStealQueue<T> {
 
 impl<T: Debug> WorkStealQueue<T> {
     /// Get a global `WorkStealQueue` instance.
-    #[allow(unsafe_code, trivial_casts, box_pointers)]
+    #[allow(unsafe_code, trivial_casts)]
     pub fn get_instance<'s>() -> &'s WorkStealQueue<T> {
         static INSTANCE: AtomicUsize = AtomicUsize::new(0);
         let mut ret = INSTANCE.load(Ordering::Relaxed);
         if ret == 0 {
             let ptr: &'s mut WorkStealQueue<T> = Box::leak(Box::default());
-            ret = ptr as *mut WorkStealQueue<T> as usize;
+            ret = std::ptr::from_mut::<WorkStealQueue<T>>(ptr) as usize;
             INSTANCE.store(ret, Ordering::Relaxed);
         }
         unsafe { &*(ret as *mut WorkStealQueue<T>) }

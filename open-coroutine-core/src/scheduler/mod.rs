@@ -98,7 +98,6 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn size(&self) -> usize;
 
     /// Add a listener to this scheduler.
-    #[allow(box_pointers)]
     fn add_listener(&mut self, listener: impl Listener + 's) {
         self.add_raw_listener(Box::new(listener));
     }
@@ -107,7 +106,8 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn add_raw_listener(&mut self, listener: Box<dyn Listener + 's>);
 }
 
-#[allow(missing_docs, box_pointers)]
+#[allow(missing_docs)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct SchedulerImpl<'s> {
     name: String,
@@ -120,7 +120,7 @@ pub struct SchedulerImpl<'s> {
 }
 
 impl SchedulerImpl<'_> {
-    #[allow(missing_docs, box_pointers)]
+    #[allow(missing_docs)]
     #[must_use]
     pub fn new(name: String, stack_size: usize) -> Self {
         let mut scheduler = SchedulerImpl {
@@ -342,7 +342,6 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
                                 }
                                 CoroutineState::SystemCall((), syscall, state) => {
                                     self.on_syscall(timeout_time, &coroutine, syscall, state);
-                                    #[allow(box_pointers)]
                                     let co_name = Box::leak(Box::from(coroutine.get_name()));
                                     if let SyscallState::Suspend(timestamp) = state {
                                         self.syscall_suspend.insert(timestamp, co_name);
@@ -378,7 +377,6 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
         self.ready.len() + self.suspend.len() + self.syscall.len()
     }
 
-    #[allow(box_pointers)]
     fn add_raw_listener(&mut self, listener: Box<dyn Listener + 's>) {
         self.listeners.push_back(listener);
     }

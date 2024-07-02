@@ -40,7 +40,6 @@ pub trait JoinHandle {
 pub struct JoinHandleImpl<'p>(*const CoroutinePoolImpl<'p>, *const c_char);
 
 impl<'p> JoinHandleImpl<'p> {
-    #[allow(box_pointers)]
     pub(crate) fn new(pool: *const CoroutinePoolImpl<'p>, name: &str) -> Self {
         let boxed: &'static mut CString = Box::leak(Box::from(
             CString::new(name).expect("init JoinHandle failed!"),
@@ -77,7 +76,6 @@ impl JoinHandle for JoinHandleImpl<'_> {
     }
 }
 
-#[allow(box_pointers)]
 #[cfg(test)]
 mod tests {
     use super::*;

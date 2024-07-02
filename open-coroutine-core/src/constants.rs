@@ -72,7 +72,7 @@ impl Display for Syscall {
 }
 
 thread_local! {
-    static SYSCALL: std::cell::RefCell<std::collections::VecDeque<Syscall>> = std::cell::RefCell::new(std::collections::VecDeque::new());
+    static SYSCALL: std::cell::RefCell<std::collections::VecDeque<Syscall>> = const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
 }
 
 #[allow(missing_docs)]
@@ -151,6 +151,7 @@ where
 }
 
 /// Enums used to describe pool state
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PoolState {
     ///The pool is created.

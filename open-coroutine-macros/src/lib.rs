@@ -3,7 +3,6 @@
     // https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html
     anonymous_parameters,
     bare_trait_objects,
-    box_pointers,
     // elided_lifetimes_in_paths, // allow anonymous lifetime
     missing_copy_implementations,
     missing_debug_implementations,
@@ -54,7 +53,6 @@ use proc_macro::TokenStream;
 use syn::{ItemFn, LitInt};
 
 /// use this macro like `#[open_coroutine::main(event_loop_size = 2, max_size = 2, keep_alive_time = 0)]`.
-#[allow(box_pointers)]
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, func: TokenStream) -> TokenStream {
     let mut event_loop_size = num_cpus::get();

@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct EventLoops {}
 

@@ -63,7 +63,6 @@ cfg_if::cfg_if! {
 #[allow(trivial_numeric_casts, clippy::cast_possible_truncation)]
 fn token() -> usize {
     if let Some(co) = SchedulableCoroutine::current() {
-        #[allow(box_pointers)]
         let boxed: &'static mut CString = Box::leak(Box::from(
             CString::new(co.get_name()).expect("build name failed!"),
         ));
@@ -95,7 +94,6 @@ pub trait EventLoop<'e>: Pool<'e, JoinHandleImpl<'e>> {
 pub struct JoinHandleImpl<'e>(*const EventLoopImpl<'e>, *const c_char);
 
 impl<'e> JoinHandleImpl<'e> {
-    #[allow(box_pointers)]
     pub(crate) fn new(event_loop: *const EventLoopImpl<'e>, name: &str) -> Self {
         let boxed: &'static mut CString = Box::leak(Box::from(
             CString::new(name).expect("init JoinHandle failed!"),
@@ -133,6 +131,7 @@ impl JoinHandle for JoinHandleImpl<'_> {
     }
 }
 
+#[repr(C)]
 #[derive(Debug)]
 pub struct EventLoopImpl<'e> {
     cpu: usize,
@@ -305,7 +304,6 @@ impl<'e> Pool<'e, JoinHandleImpl<'e>> for EventLoopImpl<'e> {
         self.pool.pop()
     }
 
-    #[allow(box_pointers)]
     fn change_blocker(&self, blocker: impl Blocker + 'e) -> Box<dyn Blocker>
     where
         'e: 'static,

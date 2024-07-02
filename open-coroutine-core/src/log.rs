@@ -1,5 +1,4 @@
 /// init log framework.
-#[allow(box_pointers)]
 #[cfg(feature = "logs")]
 pub fn init() {
     use std::sync::atomic::{AtomicBool, Ordering};

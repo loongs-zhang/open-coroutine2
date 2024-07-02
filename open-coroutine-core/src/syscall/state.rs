@@ -12,6 +12,7 @@ use libc::{
     socklen_t, ssize_t, timespec, timeval,
 };
 
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct StateLinuxSyscall<I: UnixSyscall> {
     inner: I,

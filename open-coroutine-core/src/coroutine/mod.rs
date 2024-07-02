@@ -164,7 +164,7 @@ macro_rules! co {
 }
 
 thread_local! {
-    pub(crate) static COROUTINE: RefCell<VecDeque<*const c_void>> = RefCell::new(VecDeque::new());
+    pub(crate) static COROUTINE: RefCell<VecDeque<*const c_void>> = const { RefCell::new(VecDeque::new()) };
 }
 
 #[cfg(test)]

@@ -219,7 +219,8 @@ pub trait CoroutinePool<'p>: Current<'p> + Pool<'p, JoinHandleImpl<'p>> {
     fn try_get_result(&self, task_name: &str) -> Option<(String, Result<Option<usize>, &str>)>;
 }
 
-#[allow(missing_docs, box_pointers, dead_code)]
+#[allow(missing_docs, dead_code)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct CoroutinePoolImpl<'p> {
     //绑定到哪个CPU核心
@@ -346,7 +347,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         self.task_queue.len()
     }
 
-    #[allow(box_pointers)]
     fn wait_result(
         &self,
         task_name: &str,
@@ -387,7 +387,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         Err(Error::new(ErrorKind::TimedOut, "wait timeout"))
     }
 
-    #[allow(box_pointers)]
     fn submit_raw(&self, task: TaskImpl<'p>) -> JoinHandleImpl<'p> {
         let task_name = Box::leak(Box::from(task.get_name()));
         self.task_queue.push(task);
@@ -408,7 +407,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         }
     }
 
-    #[allow(box_pointers)]
     fn change_blocker(&self, blocker: impl Blocker + 'p) -> Box<dyn Blocker>
     where
         'p: 'static,
@@ -421,7 +419,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         'p: 'static,
     {
         loop {
-            #[allow(box_pointers)]
             if let Ok(blocker) = self.blocker.try_borrow() {
                 if crate::common::SLEEP_BLOCKER_NAME == blocker.get_name() {
                     return Err(Error::new(
@@ -513,7 +510,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
 }
 
 impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
-    #[allow(box_pointers)]
     fn new(
         name: String,
         cpu: usize,
@@ -546,7 +542,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         pool
     }
 
-    #[allow(box_pointers)]
     fn init(&mut self) {
         unsafe { (*self.workers.get()).add_listener(CoroutineCreator::default()) };
     }
@@ -560,7 +555,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
     }
 
     fn try_run(&self) -> Option<()> {
-        #[allow(box_pointers)]
         self.pop().map(|task| {
             let (task_name, result) = task.run();
             assert!(
@@ -613,7 +607,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                             //减少CPU在N个无任务的协程中空轮询
                             std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
                                 loop {
-                                    #[allow(box_pointers)]
                                     if let Ok(blocker) = pool.blocker.try_borrow() {
                                         blocker.block(Duration::from_millis(1));
                                         break;
