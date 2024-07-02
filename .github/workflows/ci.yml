@@ -33,6 +33,26 @@ jobs:
           OS: ${{ matrix.os }}
           PROJECT_DIR: ${{ github.workspace }}
         run: sh .github/workflows/ci.sh
+      - name: Run cargo release socket not coroutine with io_uring example
+        if: always()
+        run: |
+          cd ${{ github.workspace }}/examples
+          sudo bash -c "sudo -u runner RUSTUP_TOOLCHAIN=${{ matrix.rust }} RUST_BACKTRACE=1 /home/runner/.cargo/bin/cargo run --example socket_not_co --release"
+      - name: Run cargo release socket coroutine server with io_uring example
+        if: always()
+        run: |
+          cd ${{ github.workspace }}/examples
+          sudo bash -c "sudo -u runner RUSTUP_TOOLCHAIN=${{ matrix.rust }} RUST_BACKTRACE=1 /home/runner/.cargo/bin/cargo run --example socket_co_server --release"
+      - name: Run cargo release socket coroutine client with io_uring example
+        if: always()
+        run: |
+          cd ${{ github.workspace }}/examples
+          sudo bash -c "sudo -u runner RUSTUP_TOOLCHAIN=${{ matrix.rust }} RUST_BACKTRACE=1 /home/runner/.cargo/bin/cargo run --example socket_co_client --release"
+      - name: Run cargo release socket coroutine with io_uring example
+        if: always()
+        run: |
+          cd ${{ github.workspace }}/examples
+          sudo bash -c "sudo -u runner RUSTUP_TOOLCHAIN=${{ matrix.rust }} RUST_BACKTRACE=1 /home/runner/.cargo/bin/cargo run --example socket_co --release"
 
     strategy:
       fail-fast: false
