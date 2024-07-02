@@ -1,9 +1,9 @@
-use crate::coroutine::Current;
+use crate::common::Current;
 use crate::scheduler::SchedulerImpl;
 use std::ffi::c_void;
 
 thread_local! {
-    static SCHEDULER: std::cell::RefCell<std::collections::VecDeque<*const c_void>> = std::cell::RefCell::new(std::collections::VecDeque::new());
+    static SCHEDULER: std::cell::RefCell<std::collections::VecDeque<*const c_void>> = const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
 }
 
 impl<'s> Current<'s> for SchedulerImpl<'s> {
@@ -14,7 +14,7 @@ impl<'s> Current<'s> for SchedulerImpl<'s> {
     {
         SCHEDULER.with(|s| {
             s.borrow_mut()
-                .push_front(current as *const _ as *const c_void);
+                .push_front(std::ptr::from_ref(current) as *const c_void);
         });
     }
 
@@ -40,16 +40,14 @@ impl<'s> Current<'s> for SchedulerImpl<'s> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coroutine::Named;
+    use crate::common::Named;
+    use crate::constants::DEFAULT_STACK_SIZE;
     use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender, Scheduler};
 
     #[test]
     fn test_current() -> std::io::Result<()> {
         let parent_name = "parent";
-        let mut scheduler = SchedulerImpl::new(
-            String::from(parent_name),
-            crate::coroutine::DEFAULT_STACK_SIZE,
-        );
+        let mut scheduler = SchedulerImpl::new(String::from(parent_name), DEFAULT_STACK_SIZE);
         scheduler.submit(
             |_, _| {
                 assert!(SchedulableCoroutine::current().is_some());
@@ -58,10 +56,8 @@ mod tests {
                 assert_eq!(parent_name, SchedulerImpl::current().unwrap().get_name());
 
                 let child_name = "child";
-                let mut scheduler = SchedulerImpl::new(
-                    String::from(child_name),
-                    crate::coroutine::DEFAULT_STACK_SIZE,
-                );
+                let mut scheduler =
+                    SchedulerImpl::new(String::from(child_name), DEFAULT_STACK_SIZE);
                 scheduler
                     .submit(
                         |_, _| {

@@ -1,5 +1,6 @@
-use crate::coroutine::constants::{Syscall, SyscallState};
-use crate::coroutine::{Current, StateMachine};
+use crate::common::Current;
+use crate::constants::{Syscall, SyscallState};
+use crate::coroutine::StateMachine;
 use crate::scheduler::SchedulableCoroutine;
 #[cfg(target_os = "linux")]
 use crate::syscall::LinuxSyscall;
@@ -11,6 +12,7 @@ use libc::{
     socklen_t, ssize_t, timespec, timeval,
 };
 
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct StateLinuxSyscall<I: UnixSyscall> {
     inner: I,

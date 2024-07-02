@@ -1,9 +1,9 @@
-use crate::coroutine::Current;
+use crate::common::Current;
 use crate::pool::CoroutinePoolImpl;
 use std::ffi::c_void;
 
 thread_local! {
-    static COROUTINE_POOL: std::cell::RefCell<std::collections::VecDeque<*const c_void>> = std::cell::RefCell::new(std::collections::VecDeque::new());
+    static COROUTINE_POOL: std::cell::RefCell<std::collections::VecDeque<*const c_void>> = const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
 }
 
 impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
@@ -14,7 +14,7 @@ impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
     {
         COROUTINE_POOL.with(|s| {
             s.borrow_mut()
-                .push_front(current as *const _ as *const c_void);
+                .push_front(std::ptr::from_ref(current) as *const c_void);
         });
     }
 
@@ -40,7 +40,8 @@ impl<'p> Current<'p> for CoroutinePoolImpl<'p> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coroutine::Named;
+    use crate::common::Named;
+    use crate::constants::DEFAULT_STACK_SIZE;
     use crate::pool::{CoroutinePool, Pool};
     use crate::scheduler::{SchedulableCoroutine, SchedulableSuspender, SchedulerImpl};
 
@@ -50,11 +51,11 @@ mod tests {
         let pool = CoroutinePoolImpl::new(
             String::from(parent_name),
             1,
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
             0,
             65536,
             0,
-            crate::blocker::SleepBlocker::default(),
+            crate::common::SleepBlocker::default(),
         );
         _ = pool.submit(
             None,
@@ -75,11 +76,11 @@ mod tests {
                 let pool = CoroutinePoolImpl::new(
                     String::from(child_name),
                     1,
-                    crate::coroutine::DEFAULT_STACK_SIZE,
+                    DEFAULT_STACK_SIZE,
                     0,
                     65536,
                     0,
-                    crate::blocker::SleepBlocker::default(),
+                    crate::common::SleepBlocker::default(),
                 );
                 _ = pool.submit(
                     None,

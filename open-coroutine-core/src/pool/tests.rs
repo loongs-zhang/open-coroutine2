@@ -160,11 +160,10 @@ fn test_stop() -> std::io::Result<()> {
     pool.stop(Duration::from_secs(1))
 }
 
-#[allow(box_pointers)]
 #[test]
 fn test_simple_auto() -> std::io::Result<()> {
     let pool = CoroutinePoolImpl::default();
-    _ = pool.change_blocker(crate::blocker::DelayBlocker::default());
+    _ = pool.change_blocker(crate::common::DelayBlocker::default());
     let pool = pool.start()?;
     pool.set_max_size(1);
     _ = pool.submit(None, |_| panic!("test panic, just ignore it"), None);
@@ -179,11 +178,10 @@ fn test_simple_auto() -> std::io::Result<()> {
     pool.stop(Duration::from_secs(3))
 }
 
-#[allow(box_pointers)]
 #[test]
 fn test_wait_auto() -> std::io::Result<()> {
     let pool = CoroutinePoolImpl::default();
-    _ = pool.change_blocker(crate::blocker::DelayBlocker::default());
+    _ = pool.change_blocker(crate::common::DelayBlocker::default());
     let pool = pool.start()?;
     pool.set_max_size(1);
     let task_name = uuid::Uuid::new_v4().to_string();

@@ -1,3 +1,4 @@
+use crate::constants::MONITOR_CPU;
 #[cfg(all(unix, feature = "preemptive-schedule"))]
 use crate::monitor::Monitor;
 use crate::net::config::Config;
@@ -12,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct EventLoops {}
 
@@ -57,7 +59,7 @@ impl EventLoops {
             }
         }
         let mut index = INDEX.fetch_add(1, Ordering::Release);
-        if skip_monitor && index % EVENT_LOOPS.len() == crate::MONITOR_CPU {
+        if skip_monitor && index % EVENT_LOOPS.len() == MONITOR_CPU {
             INDEX.store(1, Ordering::Release);
             (
                 EVENT_LOOPS.get(1).expect("init event-loop-1 failed!"),
@@ -67,7 +69,7 @@ impl EventLoops {
             index %= EVENT_LOOPS.len();
             cfg_if::cfg_if! {
                 if #[cfg(all(unix, feature = "preemptive-schedule"))] {
-                    let is_monitor = crate::MONITOR_CPU == index;
+                    let is_monitor = MONITOR_CPU == index;
                 } else {
                     let is_monitor = false;
                 }
@@ -85,7 +87,7 @@ impl EventLoops {
     pub(crate) fn monitor() -> &'static Arc<EventLoopImpl<'static>> {
         //monitor线程的EventLoop固定
         EVENT_LOOPS
-            .get(crate::MONITOR_CPU)
+            .get(MONITOR_CPU)
             .expect("init event-loop-monitor failed!")
     }
 

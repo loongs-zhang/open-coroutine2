@@ -1,7 +1,6 @@
-use crate::blocker::Blocker;
+use crate::common::{Blocker, Current, Named};
+use crate::constants::{PoolState, DEFAULT_STACK_SIZE};
 use crate::coroutine::suspender::SimpleSuspender;
-use crate::coroutine::{Current, Named};
-use crate::pool::constants::PoolState;
 use crate::pool::creator::CoroutineCreator;
 use crate::pool::join::{JoinHandle, JoinHandleImpl};
 use crate::pool::task::{Task, TaskImpl};
@@ -15,9 +14,6 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-
-/// Constants.
-pub mod constants;
 
 /// Task abstraction and impl.
 pub mod task;
@@ -164,7 +160,7 @@ pub trait CoroutinePool<'p>: Current<'p> + Pool<'p, JoinHandleImpl<'p>> {
     fn init(&mut self);
 
     /// Set the default stack stack size for the coroutines in this pool.
-    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
+    /// If it has not been set, it will be `crate::constants::DEFAULT_STACK_SIZE`.
     fn set_stack_size(&self, stack_size: usize);
 
     /// Resume a coroutine from the system call table to the ready queue,
@@ -223,7 +219,8 @@ pub trait CoroutinePool<'p>: Current<'p> + Pool<'p, JoinHandleImpl<'p>> {
     fn try_get_result(&self, task_name: &str) -> Option<(String, Result<Option<usize>, &str>)>;
 }
 
-#[allow(missing_docs, box_pointers, dead_code)]
+#[allow(missing_docs, dead_code)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct CoroutinePoolImpl<'p> {
     //绑定到哪个CPU核心
@@ -283,11 +280,11 @@ impl Named for CoroutinePoolImpl<'_> {
 
 impl Default for CoroutinePoolImpl<'_> {
     fn default() -> Self {
-        let blocker = crate::blocker::SleepBlocker::default();
+        let blocker = crate::common::SleepBlocker::default();
         Self::new(
             format!("open-coroutine-pool-{}", uuid::Uuid::new_v4()),
             1,
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
             0,
             65536,
             0,
@@ -350,7 +347,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         self.task_queue.len()
     }
 
-    #[allow(box_pointers)]
     fn wait_result(
         &self,
         task_name: &str,
@@ -391,7 +387,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         Err(Error::new(ErrorKind::TimedOut, "wait timeout"))
     }
 
-    #[allow(box_pointers)]
     fn submit_raw(&self, task: TaskImpl<'p>) -> JoinHandleImpl<'p> {
         let task_name = Box::leak(Box::from(task.get_name()));
         self.task_queue.push(task);
@@ -412,7 +407,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         }
     }
 
-    #[allow(box_pointers)]
     fn change_blocker(&self, blocker: impl Blocker + 'p) -> Box<dyn Blocker>
     where
         'p: 'static,
@@ -425,9 +419,8 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
         'p: 'static,
     {
         loop {
-            #[allow(box_pointers)]
             if let Ok(blocker) = self.blocker.try_borrow() {
-                if crate::blocker::SLEEP_BLOCKER_NAME == blocker.get_name() {
+                if crate::common::SLEEP_BLOCKER_NAME == blocker.get_name() {
                     return Err(Error::new(
                         ErrorKind::InvalidInput,
                         "You need change to another blocker !",
@@ -517,7 +510,6 @@ impl<'p> Pool<'p, JoinHandleImpl<'p>> for CoroutinePoolImpl<'p> {
 }
 
 impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
-    #[allow(box_pointers)]
     fn new(
         name: String,
         cpu: usize,
@@ -550,7 +542,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
         pool
     }
 
-    #[allow(box_pointers)]
     fn init(&mut self) {
         unsafe { (*self.workers.get()).add_listener(CoroutineCreator::default()) };
     }
@@ -564,7 +555,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
     }
 
     fn try_run(&self) -> Option<()> {
-        #[allow(box_pointers)]
         self.pop().map(|task| {
             let (task_name, result) = task.run();
             assert!(
@@ -617,7 +607,6 @@ impl<'p> CoroutinePool<'p> for CoroutinePoolImpl<'p> {
                             //减少CPU在N个无任务的协程中空轮询
                             std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
                                 loop {
-                                    #[allow(box_pointers)]
                                     if let Ok(blocker) = pool.blocker.try_borrow() {
                                         blocker.block(Duration::from_millis(1));
                                         break;

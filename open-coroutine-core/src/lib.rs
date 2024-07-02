@@ -3,7 +3,6 @@
     // https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html
     anonymous_parameters,
     bare_trait_objects,
-    box_pointers,
     // elided_lifetimes_in_paths, // allow anonymous lifetime
     missing_copy_implementations,
     missing_debug_implementations,
@@ -52,11 +51,14 @@ pub mod log;
 #[cfg(target_os = "linux")]
 pub mod version;
 
+/// Constants.
+pub mod constants;
+
 /// Coroutine abstraction and impl.
 pub mod coroutine;
 
-/// Blocker abstraction and impl.
-pub mod blocker;
+/// Common traits and impl.
+pub mod common;
 
 /// Scheduler abstraction and impl.
 pub mod scheduler;
@@ -64,20 +66,12 @@ pub mod scheduler;
 /// Coroutine pool abstraction and impl.
 pub mod pool;
 
-/// CPU bound to monitor
-pub const MONITOR_CPU: usize = 0;
-
 /// Monitor abstraction and impl.
 #[cfg(all(unix, feature = "preemptive-schedule"))]
 pub mod monitor;
 
 /// net abstraction and impl.
-#[allow(
-    missing_docs,
-    box_pointers,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc
-)]
+#[allow(missing_docs, clippy::missing_errors_doc, clippy::missing_panics_doc)]
 #[cfg(feature = "net")]
 pub mod net;
 

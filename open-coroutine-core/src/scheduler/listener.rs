@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{Syscall, SyscallState};
+use crate::constants::{Syscall, SyscallState};
 use crate::scheduler::{SchedulableCoroutine, SchedulerImpl};
 use std::fmt::Debug;
 
@@ -29,7 +29,6 @@ pub trait Listener: Debug {
     fn on_error(&self, _: u64, _: &SchedulableCoroutine, _: &str) {}
 }
 
-#[allow(box_pointers)]
 impl Listener for SchedulerImpl<'_> {
     fn on_create(&self, coroutine: &SchedulableCoroutine) {
         for listener in &self.listeners {

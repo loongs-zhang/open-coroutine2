@@ -1,6 +1,10 @@
-use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter};
+
+/// min stack size for backtrace
+pub const DEFAULT_STACK_SIZE: usize = 64 * 1024;
+
+/// CPU bound to monitor
+pub const MONITOR_CPU: usize = 0;
 
 /// Enums used to describe syscall
 #[allow(non_camel_case_types, missing_docs)]
@@ -68,7 +72,7 @@ impl Display for Syscall {
 }
 
 thread_local! {
-    static SYSCALL: RefCell<VecDeque<Syscall>> = RefCell::new(VecDeque::new());
+    static SYSCALL: std::cell::RefCell<std::collections::VecDeque<Syscall>> = const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
 }
 
 #[allow(missing_docs)]
@@ -141,6 +145,26 @@ where
     Y: Copy + Eq + PartialEq + Debug,
     R: Copy + Eq + PartialEq + Debug,
 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+/// Enums used to describe pool state
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum PoolState {
+    ///The pool is created.
+    Created,
+    ///The pool is running in an additional thread.
+    Running,
+    ///The pool is stopping, `true` means thread mode.
+    Stopping(bool),
+    ///The pool is stopped.
+    Stopped,
+}
+
+impl Display for PoolState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
     }

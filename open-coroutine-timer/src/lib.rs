@@ -3,7 +3,6 @@
     // https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html
     anonymous_parameters,
     bare_trait_objects,
-    box_pointers,
     elided_lifetimes_in_paths,
     missing_copy_implementations,
     missing_debug_implementations,
@@ -144,6 +143,24 @@ impl<T> TimerEntry<T> {
     }
 }
 
+impl<'t, T> IntoIterator for &'t mut TimerEntry<T> {
+    type Item = &'t mut T;
+    type IntoIter = IterMut<'t, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<'t, T> IntoIterator for &'t TimerEntry<T> {
+    type Item = &'t T;
+    type IntoIter = Iter<'t, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// A queue for managing multiple `TimerEntry`.
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq)]
@@ -240,6 +257,24 @@ impl<T> TimerList<T> {
     /// Returns a front-to-back iterator.
     pub fn iter(&self) -> std::collections::btree_map::Iter<'_, u64, TimerEntry<T>> {
         self.0.iter()
+    }
+}
+
+impl<'t, T> IntoIterator for &'t TimerList<T> {
+    type Item = (&'t u64, &'t TimerEntry<T>);
+    type IntoIter = std::collections::btree_map::Iter<'t, u64, TimerEntry<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'t, T> IntoIterator for &'t mut TimerList<T> {
+    type Item = (&'t u64, &'t mut TimerEntry<T>);
+    type IntoIter = std::collections::btree_map::IterMut<'t, u64, TimerEntry<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 

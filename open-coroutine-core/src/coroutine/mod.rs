@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::Suspender;
 use std::cell::RefCell;
@@ -6,10 +6,6 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::panic::UnwindSafe;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-/// Constants.
-pub mod constants;
 
 /// Coroutine local abstraction.
 pub mod local;
@@ -17,62 +13,16 @@ pub mod local;
 /// Coroutine suspender abstraction.
 pub mod suspender;
 
+use crate::common::{Current, Named};
 #[cfg(feature = "korosensei")]
 pub use korosensei::CoroutineImpl;
+
 #[allow(missing_docs)]
 #[cfg(feature = "korosensei")]
 mod korosensei;
 
 #[cfg(all(feature = "boost", not(feature = "korosensei")))]
 mod boost;
-
-#[allow(clippy::pedantic, missing_docs)]
-pub fn page_size() -> usize {
-    static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
-    let mut ret = PAGE_SIZE.load(Ordering::Relaxed);
-    if ret == 0 {
-        unsafe {
-            cfg_if::cfg_if! {
-                if #[cfg(windows)] {
-                    let mut info = std::mem::zeroed();
-                    windows_sys::Win32::System::SystemInformation::GetSystemInfo(&mut info);
-                    ret = info.dwPageSize as usize
-                } else {
-                    ret = libc::sysconf(libc::_SC_PAGESIZE) as usize;
-                }
-            }
-        }
-        PAGE_SIZE.store(ret, Ordering::Relaxed);
-    }
-    ret
-}
-
-/// min stack size for backtrace
-pub const DEFAULT_STACK_SIZE: usize = 64 * 1024;
-
-/// Give the object a name.
-pub trait Named {
-    /// Get the name of this object.
-    fn get_name(&self) -> &str;
-}
-
-/// A trait implemented for which needs `current()`.
-pub trait Current<'c> {
-    /// Init the current.
-    fn init_current(current: &Self)
-    where
-        Self: Sized;
-
-    /// Get the current if has.
-    fn current() -> Option<&'c Self>
-    where
-        Self: Sized;
-
-    /// clean the current.
-    fn clean_current()
-    where
-        Self: Sized;
-}
 
 /// A trait implemented for coroutines.
 pub trait Coroutine<'c>: Debug + Eq + PartialEq + Ord + PartialOrd + Named + Current<'c> {
@@ -200,7 +150,7 @@ macro_rules! co {
         $crate::coroutine::CoroutineImpl::new(
             uuid::Uuid::new_v4().to_string(),
             $f,
-            $crate::coroutine::DEFAULT_STACK_SIZE,
+            $crate::constants::DEFAULT_STACK_SIZE,
         )
         .expect("create coroutine failed !")
     };
@@ -208,13 +158,13 @@ macro_rules! co {
         $crate::coroutine::CoroutineImpl::new($name, $f, $size).expect("create coroutine failed !")
     };
     ($name:expr, $f:expr $(,)?) => {
-        $crate::coroutine::CoroutineImpl::new($name, $f, $crate::coroutine::DEFAULT_STACK_SIZE)
+        $crate::coroutine::CoroutineImpl::new($name, $f, $crate::constants::DEFAULT_STACK_SIZE)
             .expect("create coroutine failed !")
     };
 }
 
 thread_local! {
-    pub(crate) static COROUTINE: RefCell<VecDeque<*const c_void>> = RefCell::new(VecDeque::new());
+    pub(crate) static COROUTINE: RefCell<VecDeque<*const c_void>> = const { RefCell::new(VecDeque::new()) };
 }
 
 #[cfg(test)]

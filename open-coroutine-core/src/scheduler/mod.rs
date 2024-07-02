@@ -1,6 +1,7 @@
-use crate::coroutine::constants::{CoroutineState, SyscallState};
+use crate::common::{Current, Named};
+use crate::constants::{CoroutineState, SyscallState, DEFAULT_STACK_SIZE};
 use crate::coroutine::suspender::{Suspender, SuspenderImpl};
-use crate::coroutine::{Coroutine, CoroutineImpl, Current, Named, SimpleCoroutine, StateMachine};
+use crate::coroutine::{Coroutine, CoroutineImpl, SimpleCoroutine, StateMachine};
 use crate::scheduler::listener::Listener;
 use dashmap::DashMap;
 use open_coroutine_queue::LocalQueue;
@@ -29,7 +30,7 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn init(&mut self);
 
     /// Set the default stack stack size for the coroutines in this scheduler.
-    /// If it has not been set, it will be `crate::coroutine::DEFAULT_STACK_SIZE`.
+    /// If it has not been set, it will be `crate::constants::DEFAULT_STACK_SIZE`.
     fn set_stack_size(&self, stack_size: usize);
 
     /// Submit a closure to new coroutine, then the coroutine will be push into ready queue.
@@ -97,7 +98,6 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn size(&self) -> usize;
 
     /// Add a listener to this scheduler.
-    #[allow(box_pointers)]
     fn add_listener(&mut self, listener: impl Listener + 's) {
         self.add_raw_listener(Box::new(listener));
     }
@@ -106,7 +106,8 @@ pub trait Scheduler<'s>: Debug + Default + Named + Current<'s> + Listener {
     fn add_raw_listener(&mut self, listener: Box<dyn Listener + 's>);
 }
 
-#[allow(missing_docs, box_pointers)]
+#[allow(missing_docs)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct SchedulerImpl<'s> {
     name: String,
@@ -119,7 +120,7 @@ pub struct SchedulerImpl<'s> {
 }
 
 impl SchedulerImpl<'_> {
-    #[allow(missing_docs, box_pointers)]
+    #[allow(missing_docs)]
     #[must_use]
     pub fn new(name: String, stack_size: usize) -> Self {
         let mut scheduler = SchedulerImpl {
@@ -196,7 +197,7 @@ impl Default for SchedulerImpl<'_> {
     fn default() -> Self {
         Self::new(
             format!("open-coroutine-scheduler-{}", uuid::Uuid::new_v4()),
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
         )
     }
 }
@@ -250,8 +251,9 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
     /// # Examples
     /// ```
     /// use std::time::Duration;
-    /// use open_coroutine_core::coroutine::constants::{CoroutineState, Syscall, SyscallState};
-    /// use open_coroutine_core::coroutine::{Current, StateMachine};
+    /// use open_coroutine_core::common::Current;
+    /// use open_coroutine_core::constants::{CoroutineState, Syscall, SyscallState};
+    /// use open_coroutine_core::coroutine::StateMachine;
     /// use open_coroutine_core::coroutine::suspender::SimpleSuspender;
     /// use open_coroutine_core::scheduler::{SchedulableCoroutine, SchedulableSuspender, Scheduler, SchedulerImpl};
     ///
@@ -340,7 +342,6 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
                                 }
                                 CoroutineState::SystemCall((), syscall, state) => {
                                     self.on_syscall(timeout_time, &coroutine, syscall, state);
-                                    #[allow(box_pointers)]
                                     let co_name = Box::leak(Box::from(coroutine.get_name()));
                                     if let SyscallState::Suspend(timestamp) = state {
                                         self.syscall_suspend.insert(timestamp, co_name);
@@ -376,7 +377,6 @@ impl<'s> Scheduler<'s> for SchedulerImpl<'s> {
         self.ready.len() + self.suspend.len() + self.syscall.len()
     }
 
-    #[allow(box_pointers)]
     fn add_raw_listener(&mut self, listener: Box<dyn Listener + 's>) {
         self.listeners.push_back(listener);
     }

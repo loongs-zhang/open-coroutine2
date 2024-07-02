@@ -1,4 +1,4 @@
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::constants::{CoroutineState, Syscall, SyscallState};
 use crate::coroutine::local::CoroutineLocal;
 use crate::coroutine::suspender::{DelaySuspender, Suspender, SuspenderImpl};
 use crate::coroutine::{Coroutine, Current, Named, StateMachine, COROUTINE};
@@ -21,6 +21,7 @@ cfg_if::cfg_if! {
     }
 }
 
+#[repr(C)]
 pub struct CoroutineImpl<'c, Param, Yield, Return>
 where
     Param: UnwindSafe,
@@ -72,7 +73,7 @@ where
     fn init_current(current: &CoroutineImpl<'c, Param, Yield, Return>) {
         COROUTINE.with(|s| {
             s.borrow_mut()
-                .push_front(current as *const _ as *const c_void);
+                .push_front(std::ptr::from_ref(current) as *const c_void);
         });
     }
 
@@ -92,7 +93,6 @@ where
 impl<Param, Yield, Return> Eq for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -101,7 +101,6 @@ where
 impl<Param, Yield, Return> PartialEq<Self> for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -113,7 +112,6 @@ where
 impl<Param, Yield, Return> Ord for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -125,7 +123,6 @@ where
 impl<Param, Yield, Return> PartialOrd<Self> for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -137,7 +134,6 @@ where
 impl<Param, Yield, Return> Named for CoroutineImpl<'_, Param, Yield, Return>
 where
     Param: UnwindSafe,
-
     Yield: Copy + Debug + Eq + PartialEq + UnwindSafe,
     Return: Copy + Debug + Eq + PartialEq + UnwindSafe,
 {
@@ -166,13 +162,12 @@ where
         F: 'c,
         Self: Sized,
     {
-        let stack = DefaultStack::new(stack_size.max(crate::coroutine::page_size()))?;
+        let stack = DefaultStack::new(stack_size.max(crate::common::page_size()))?;
         #[cfg(feature = "logs")]
         let co_name = name.clone().leak();
         let inner = ScopedCoroutine::with_stack(stack, move |y, p| {
             let suspender = SuspenderImpl(y);
             SuspenderImpl::<Param, Yield>::init_current(&suspender);
-            #[allow(box_pointers)]
             let r = std::panic::catch_unwind(AssertUnwindSafe(|| f(&suspender, p))).map_err(|e| {
                 let message = *e
                     .downcast_ref::<&'static str>()

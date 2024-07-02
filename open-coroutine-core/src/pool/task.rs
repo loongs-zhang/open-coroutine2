@@ -1,4 +1,4 @@
-use crate::coroutine::Named;
+use crate::common::Named;
 use std::cell::Cell;
 use std::fmt::{Debug, Formatter};
 use std::panic::UnwindSafe;
@@ -27,7 +27,7 @@ pub trait Task<'t>: Named + UnwindSafe {
 }
 
 #[repr(C)]
-#[allow(clippy::type_complexity, box_pointers, missing_docs)]
+#[allow(clippy::type_complexity, missing_docs)]
 pub struct TaskImpl<'t> {
     name: String,
     func: Box<dyn FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 't>,
@@ -52,7 +52,6 @@ impl Named for TaskImpl<'_> {
 }
 
 impl<'t> Task<'t> for TaskImpl<'t> {
-    #[allow(box_pointers)]
     fn new(
         name: String,
         func: impl FnOnce(Option<usize>) -> Option<usize> + UnwindSafe + 't,
@@ -73,7 +72,6 @@ impl<'t> Task<'t> for TaskImpl<'t> {
         self.param.get()
     }
 
-    #[allow(box_pointers)]
     fn run<'e>(self) -> (String, Result<Option<usize>, &'e str>) {
         let paran = self.get_param();
         (

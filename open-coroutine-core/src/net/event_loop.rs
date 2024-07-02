@@ -1,9 +1,8 @@
-use crate::blocker::Blocker;
-use crate::coroutine::constants::{CoroutineState, Syscall, SyscallState};
+use crate::common::{Blocker, Current, Named};
+use crate::constants::{CoroutineState, PoolState, Syscall, SyscallState, DEFAULT_STACK_SIZE};
 use crate::coroutine::suspender::SimpleDelaySuspender;
-use crate::coroutine::{Current, Named, StateMachine};
+use crate::coroutine::StateMachine;
 use crate::net::selector::{Selector, SelectorImpl};
-use crate::pool::constants::PoolState;
 use crate::pool::join::JoinHandle;
 use crate::pool::task::TaskImpl;
 use crate::pool::{CoroutinePool, CoroutinePoolImpl, Pool};
@@ -19,7 +18,6 @@ use std::time::Duration;
 #[allow(trivial_numeric_casts, clippy::cast_possible_truncation)]
 fn token() -> usize {
     if let Some(co) = SchedulableCoroutine::current() {
-        #[allow(box_pointers)]
         let boxed: &'static mut CString = Box::leak(Box::from(
             CString::new(co.get_name()).expect("build name failed!"),
         ));
@@ -51,7 +49,6 @@ pub trait EventLoop<'e>: Pool<'e, JoinHandleImpl<'e>> {
 pub struct JoinHandleImpl<'e>(*const EventLoopImpl<'e>, *const c_char);
 
 impl<'e> JoinHandleImpl<'e> {
-    #[allow(box_pointers)]
     pub(crate) fn new(event_loop: *const EventLoopImpl<'e>, name: &str) -> Self {
         let boxed: &'static mut CString = Box::leak(Box::from(
             CString::new(name).expect("init JoinHandle failed!"),
@@ -89,6 +86,7 @@ impl JoinHandle for JoinHandleImpl<'_> {
     }
 }
 
+#[repr(C)]
 #[derive(Debug)]
 pub struct EventLoopImpl<'e> {
     cpu: usize,
@@ -117,7 +115,7 @@ impl EventLoopImpl<'_> {
                 min_size,
                 max_size,
                 keep_alive_time,
-                crate::blocker::DelayBlocker::default(),
+                crate::common::DelayBlocker::default(),
             ),
             selector: SelectorImpl::new()?,
             stop: Arc::new((Mutex::new(false), Condvar::new())),
@@ -163,7 +161,7 @@ impl Default for EventLoopImpl<'_> {
         Self::new(
             format!("open-coroutine-event-loop-{}", uuid::Uuid::new_v4()),
             1,
-            crate::coroutine::DEFAULT_STACK_SIZE,
+            DEFAULT_STACK_SIZE,
             0,
             65536,
             0,
@@ -256,7 +254,6 @@ impl<'e> Pool<'e, JoinHandleImpl<'e>> for EventLoopImpl<'e> {
         self.pool.pop()
     }
 
-    #[allow(box_pointers)]
     fn change_blocker(&self, blocker: impl Blocker + 'e) -> Box<dyn Blocker>
     where
         'e: 'static,
