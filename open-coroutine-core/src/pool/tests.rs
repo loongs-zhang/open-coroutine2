@@ -160,7 +160,6 @@ fn test_stop() -> std::io::Result<()> {
     pool.stop(Duration::from_secs(1))
 }
 
-#[allow(box_pointers)]
 #[test]
 fn test_simple_auto() -> std::io::Result<()> {
     let pool = CoroutinePoolImpl::default();
@@ -179,7 +178,6 @@ fn test_simple_auto() -> std::io::Result<()> {
     pool.stop(Duration::from_secs(3))
 }
 
-#[allow(box_pointers)]
 #[test]
 fn test_wait_auto() -> std::io::Result<()> {
     let pool = CoroutinePoolImpl::default();
