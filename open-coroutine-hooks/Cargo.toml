@@ -40,6 +40,8 @@ crate-type = ["cdylib"]
 [features]
 default = ["full"]
 
+nightly = []
+
 # Provide preemptive scheduling implementation.
 # Enable for default.
 preemptive-schedule = ["open-coroutine-core/preemptive-schedule"]
