@@ -62,6 +62,9 @@ slab = "0.4.8"
 [features]
 default = ["full"]
 
+# use nightly only feature flags
+unstable = []
+
 # Supported low-level coroutines.
 boost = ["context"]
 korosensei = ["corosensei", "nix/pthread"]
