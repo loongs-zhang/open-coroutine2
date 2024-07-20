@@ -55,6 +55,9 @@ backtrace = "0.3.67"
 [features]
 default = ["full"]
 
+# use nightly only feature flags
+unstable = []
+
 # Supported low-level coroutines.
 boost = ["context"]
 korosensei = ["corosensei", "nix/pthread"]

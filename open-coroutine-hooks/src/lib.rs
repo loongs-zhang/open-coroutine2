@@ -70,5 +70,5 @@ pub mod coroutine;
 pub mod unix;
 
 #[allow(dead_code, clippy::not_unsafe_ptr_arg_deref, clippy::similar_names)]
-#[cfg(all(windows, nightly))]
+#[cfg(all(windows, feature = "nightly"))]
 mod windows;
