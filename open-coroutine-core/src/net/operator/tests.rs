@@ -273,7 +273,7 @@ fn crate_client(port: u16, server_started: Arc<AtomicBool>) {
 
 #[test]
 fn original() -> anyhow::Result<()> {
-    let port = 8888;
+    let port = 9000;
     let server_started = Arc::new(AtomicBool::new(false));
     let clone = server_started.clone();
     let handle = std::thread::spawn(move || crate_server(port, clone));
@@ -402,7 +402,7 @@ fn crate_server2(port: u16, server_started: Arc<AtomicBool>) -> anyhow::Result<(
 
 #[test]
 fn framework() -> anyhow::Result<()> {
-    let port = 8899;
+    let port = 9001;
     let server_started = Arc::new(AtomicBool::new(false));
     let clone = server_started.clone();
     let handle = std::thread::spawn(move || crate_server2(port, clone));
